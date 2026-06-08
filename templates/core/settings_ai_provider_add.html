@@ -9,7 +9,7 @@
         <a href="{% url 'core:settings_ai_providers' %}" class="text-decoration-none">&larr; AI providers</a>
         <h1 class="h3 mt-3 mb-1">Add AI Provider Key</h1>
         <p class="text-secondary mb-0">
-          OpenAI is supported first. Additional providers can be added behind the same interface later.
+          Add a customer-owned OpenAI, Claude, or Gemini key.
         </p>
       </div>
 
@@ -38,7 +38,7 @@
             <div class="mt-4" data-provider-model-policy>
               <label class="form-label">{{ form.allowed_model_ids.label }}</label>
               <div class="form-text mb-2">{{ form.allowed_model_ids.help_text }}</div>
-              <div class="row g-2">
+              <div class="row g-2" data-provider-model-options>
                 {% for choice in form.allowed_model_ids %}
                   <div class="col-sm-6">
                     <label class="form-check border rounded-2 p-2 h-100" for="{{ choice.id_for_label }}">
@@ -61,18 +61,68 @@
     </div>
   </div>
 
+  {{ provider_model_choices|json_script:"provider-model-choices" }}
+  {{ provider_default_models|json_script:"provider-default-models" }}
+
   <script>
     (function () {
       const provider = document.getElementById("id_provider");
+      const modelSelect = document.getElementById("id_model_name");
       const policy = document.querySelector("[data-provider-model-policy]");
-      if (!provider || !policy) return;
+      const optionsContainer = document.querySelector("[data-provider-model-options]");
+      const choicesScript = document.getElementById("provider-model-choices");
+      const defaultsScript = document.getElementById("provider-default-models");
+      if (!provider || !modelSelect || !policy || !optionsContainer || !choicesScript || !defaultsScript) return;
 
-      function updatePolicyVisibility() {
-        policy.hidden = provider.value !== "openai";
+      const choicesByProvider = JSON.parse(choicesScript.textContent);
+      const defaultsByProvider = JSON.parse(defaultsScript.textContent);
+
+      function buildOption(model) {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.name;
+        return option;
       }
 
-      provider.addEventListener("change", updatePolicyVisibility);
-      updatePolicyVisibility();
+      function buildCheckbox(model, index) {
+        const column = document.createElement("div");
+        column.className = "col-sm-6";
+
+        const label = document.createElement("label");
+        label.className = "form-check border rounded-2 p-2 h-100";
+        label.htmlFor = "id_allowed_model_ids_" + index;
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.name = "allowed_model_ids";
+        checkbox.value = model.id;
+        checkbox.id = "id_allowed_model_ids_" + index;
+        checkbox.checked = true;
+
+        const text = document.createElement("span");
+        text.className = "form-check-label";
+        text.textContent = model.name;
+
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(" "));
+        label.appendChild(text);
+        column.appendChild(label);
+        return column;
+      }
+
+      function updateProviderModels() {
+        const choices = choicesByProvider[provider.value] || [];
+        policy.hidden = choices.length === 0;
+        modelSelect.replaceChildren(...choices.map(buildOption));
+        modelSelect.value = defaultsByProvider[provider.value] || (choices[0] && choices[0].id) || "";
+        optionsContainer.replaceChildren(
+          ...choices.map(function (model, index) {
+            return buildCheckbox(model, index);
+          })
+        );
+      }
+
+      provider.addEventListener("change", updateProviderModels);
     })();
   </script>
 {% endblock %}

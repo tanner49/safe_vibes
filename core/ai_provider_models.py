@@ -46,18 +46,87 @@ CURATED_OPENAI_MODELS = [
     },
 ]
 
+CURATED_ANTHROPIC_MODELS = [
+    {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "sort_order": 10,
+    },
+    {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "sort_order": 20,
+    },
+    {
+        "id": "claude-haiku-4-5",
+        "name": "Claude Haiku 4.5",
+        "sort_order": 30,
+    },
+]
+
+CURATED_GEMINI_MODELS = [
+    {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "sort_order": 10,
+    },
+    {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "sort_order": 20,
+    },
+    {
+        "id": "gemini-3-flash-preview",
+        "name": "Gemini 3 Flash Preview",
+        "sort_order": 30,
+    },
+    {
+        "id": "gemini-3.1-flash-lite",
+        "name": "Gemini 3.1 Flash-Lite",
+        "sort_order": 40,
+    },
+    {
+        "id": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "sort_order": 50,
+    },
+    {
+        "id": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "sort_order": 60,
+    },
+    {
+        "id": "gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash-Lite",
+        "sort_order": 70,
+    },
+]
+
+CURATED_MODELS_BY_PROVIDER = {
+    AIProviderKey.Provider.OPENAI: CURATED_OPENAI_MODELS,
+    AIProviderKey.Provider.ANTHROPIC: CURATED_ANTHROPIC_MODELS,
+    AIProviderKey.Provider.GEMINI: CURATED_GEMINI_MODELS,
+}
+
+DEFAULT_MODEL_BY_PROVIDER = {
+    AIProviderKey.Provider.OPENAI: "gpt-5.4-mini",
+    AIProviderKey.Provider.ANTHROPIC: "claude-sonnet-4-6",
+    AIProviderKey.Provider.GEMINI: "gemini-3.5-flash",
+}
+
 
 def seed_curated_model_catalog():
-    for model in CURATED_OPENAI_MODELS:
-        AIModelCatalog.objects.update_or_create(
-            provider=AIProviderKey.Provider.OPENAI,
-            model_id=model["id"],
-            defaults={
-                "display_name": model["name"],
-                "enabled": True,
-                "sort_order": model["sort_order"],
-            },
-        )
+    for provider, models in CURATED_MODELS_BY_PROVIDER.items():
+        for model in models:
+            AIModelCatalog.objects.update_or_create(
+                provider=provider,
+                model_id=model["id"],
+                defaults={
+                    "display_name": model["name"],
+                    "enabled": True,
+                    "sort_order": model["sort_order"],
+                },
+            )
 
 
 def get_curated_model_choices(provider):
@@ -73,15 +142,44 @@ def get_curated_model_choices(provider):
     if choices:
         return choices
 
-    if provider == AIProviderKey.Provider.OPENAI:
-        return [(model["id"], model["name"]) for model in CURATED_OPENAI_MODELS]
+    provider_models = CURATED_MODELS_BY_PROVIDER.get(provider, [])
+    if provider_models:
+        return [(model["id"], model["name"]) for model in provider_models]
 
     return []
 
 
+def get_curated_model_choices_by_provider():
+    return {
+        provider: [
+            {"id": model_id, "name": display_name}
+            for model_id, display_name in get_curated_model_choices(provider)
+        ]
+        for provider in CURATED_MODELS_BY_PROVIDER
+    }
+
+
+def get_default_model_for_provider(provider):
+    default_model = DEFAULT_MODEL_BY_PROVIDER.get(provider)
+    choices = get_curated_model_choices(provider)
+    choice_values = {model_id for model_id, _display_name in choices}
+    if default_model in choice_values:
+        return default_model
+    if choices:
+        return choices[0][0]
+    return ""
+
+
+def get_default_models_by_provider():
+    return {
+        provider: get_default_model_for_provider(provider)
+        for provider in CURATED_MODELS_BY_PROVIDER
+    }
+
+
 def sync_provider_models(provider_key, allowed_model_ids=None):
-    if provider_key.provider != AIProviderKey.Provider.OPENAI:
-        raise ModelSyncError("Only OpenAI curated model refresh is supported right now.")
+    if provider_key.provider not in CURATED_MODELS_BY_PROVIDER:
+        raise ModelSyncError("This provider does not have a curated model catalog.")
 
     now = timezone.now()
     seen_model_ids = set()

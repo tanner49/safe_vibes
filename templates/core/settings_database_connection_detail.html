@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Database Connection - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <a href="{% url 'core:settings_database_connections' %}" class="text-decoration-none">&larr; Database connections</a>
+      <h1 class="h3 mt-3 mb-1">{{ database_connection.name }}</h1>
+      <p class="text-secondary mb-0">
+        Manage this approved data source for report queries.
+      </p>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-5">
+          <h2 class="h5">Connection</h2>
+          <dl class="row">
+            <dt class="col-sm-5">Provider</dt>
+            <dd class="col-sm-7">{{ database_connection.get_provider_display }}</dd>
+            <dt class="col-sm-5">Stored string</dt>
+            <dd class="col-sm-7"><code>{{ database_connection.connection_string_preview }}</code></dd>
+            <dt class="col-sm-5">Last test</dt>
+            <dd class="col-sm-7">
+              {% if database_connection.last_tested_at %}
+                {{ database_connection.last_test_succeeded|yesno:"Passed,Failed" }} at {{ database_connection.last_tested_at }}
+              {% else %}
+                Not tested
+              {% endif %}
+            </dd>
+          </dl>
+          {% if database_connection.last_test_error %}
+            <div class="alert alert-warning">{{ database_connection.last_test_error }}</div>
+          {% endif %}
+          <form method="post" action="{% url 'core:settings_database_connection_test' database_connection.id %}">
+            {% csrf_token %}
+            <button class="btn btn-outline-primary" type="submit">Test connection</button>
+          </form>
+        </div>
+
+        <div class="col-lg-7">
+          <h2 class="h5">Settings</h2>
+          <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+              {{ form.name }}
+              <div class="form-text">{{ form.name.help_text }}</div>
+              {{ form.name.errors }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.provider.id_for_label }}">Provider</label>
+              {{ form.provider }}
+              <div class="form-text">{{ form.provider.help_text }}</div>
+              {{ form.provider.errors }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.connection_string.id_for_label }}">Replace connection string</label>
+              {{ form.connection_string }}
+              <div class="form-text">{{ form.connection_string.help_text }}</div>
+              {{ form.connection_string.errors }}
+            </div>
+            <div class="form-check form-switch mb-4">
+              {{ form.enabled }}
+              <label class="form-check-label" for="{{ form.enabled.id_for_label }}">Enabled</label>
+              <div class="form-text">{{ form.enabled.help_text }}</div>
+              {{ form.enabled.errors }}
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary" type="submit">Save connection</button>
+              <a class="btn btn-outline-secondary" href="{% url 'core:settings_database_connections' %}">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <hr class="my-4">
+
+      <form
+        method="post"
+        action="{% url 'core:settings_database_connection_delete' database_connection.id %}"
+        onsubmit="return confirm('Delete this database connection? Reports using it will stop working.');"
+      >
+        {% csrf_token %}
+        <button class="btn btn-outline-danger" type="submit">Delete connection</button>
+      </form>
+    </div>
+  </section>
+{% endblock %}

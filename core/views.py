@@ -4,17 +4,26 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .ai_provider_models import sync_provider_models
+from .ai_provider_models import (
+    get_curated_model_choices_by_provider,
+    get_default_models_by_provider,
+    get_default_model_for_provider,
+    sync_provider_models,
+)
 from .forms import (
     AIProviderKeyCreateForm,
     AIProviderKeyUpdateForm,
     CompanyUserCreateForm,
+    DatabaseConnectionCreateForm,
+    DatabaseConnectionUpdateForm,
     OrganizationPolicyForm,
 )
 from .memberships import get_current_membership
-from .models import AIProviderKey, Membership
+from .models import AIProviderKey, DatabaseConnection, Membership
+from .database_connections import test_sqlalchemy_connection
 
 
 def require_company_admin(user):
@@ -166,6 +175,141 @@ def settings_user_remove(request, membership_id):
 
 
 @login_required
+def settings_database_connections(request):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+    database_connections = organization.database_connections.order_by(
+        "provider",
+        "name",
+    )
+    return render(
+        request,
+        "core/settings_database_connections.html",
+        {
+            "membership": membership,
+            "organization": organization,
+            "database_connections": database_connections,
+        },
+    )
+
+
+@login_required
+def settings_database_connection_add(request):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+
+    if request.method == "POST":
+        form = DatabaseConnectionCreateForm(request.POST)
+        if form.is_valid():
+            database_connection = form.save(organization)
+            messages.success(request, f"{database_connection.name} was added.")
+            return redirect(
+                "core:settings_database_connection_detail",
+                database_connection.id,
+            )
+    else:
+        form = DatabaseConnectionCreateForm(
+            initial={
+                "provider": DatabaseConnection.Provider.POSTGRES,
+                "enabled": True,
+            }
+        )
+
+    return render(
+        request,
+        "core/settings_database_connection_add.html",
+        {
+            "form": form,
+            "membership": membership,
+            "organization": organization,
+        },
+    )
+
+
+@login_required
+def settings_database_connection_detail(request, connection_id):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+    database_connection = get_object_or_404(
+        DatabaseConnection,
+        id=connection_id,
+        organization=organization,
+    )
+
+    if request.method == "POST":
+        form = DatabaseConnectionUpdateForm(request.POST, instance=database_connection)
+        if form.is_valid():
+            database_connection = form.save()
+            messages.success(
+                request,
+                f"{database_connection.name} settings were updated.",
+            )
+            return redirect(
+                "core:settings_database_connection_detail",
+                database_connection.id,
+            )
+    else:
+        form = DatabaseConnectionUpdateForm(instance=database_connection)
+
+    return render(
+        request,
+        "core/settings_database_connection_detail.html",
+        {
+            "form": form,
+            "membership": membership,
+            "organization": organization,
+            "database_connection": database_connection,
+        },
+    )
+
+
+@login_required
+@require_POST
+def settings_database_connection_test(request, connection_id):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+    database_connection = get_object_or_404(
+        DatabaseConnection,
+        id=connection_id,
+        organization=organization,
+    )
+
+    result = test_sqlalchemy_connection(database_connection.get_connection_string())
+    database_connection.last_tested_at = timezone.now()
+    database_connection.last_test_succeeded = result.succeeded
+    database_connection.last_test_error = "" if result.succeeded else result.message[:2000]
+    database_connection.save(
+        update_fields=[
+            "last_tested_at",
+            "last_test_succeeded",
+            "last_test_error",
+            "updated_at",
+        ]
+    )
+    if result.succeeded:
+        messages.success(request, result.message)
+    else:
+        messages.error(request, f"Connection test failed: {result.message}")
+    return redirect("core:settings_database_connection_detail", database_connection.id)
+
+
+@login_required
+@require_POST
+def settings_database_connection_delete(request, connection_id):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+    database_connection = get_object_or_404(
+        DatabaseConnection,
+        id=connection_id,
+        organization=organization,
+    )
+    name = database_connection.name
+    database_connection.delete()
+    messages.success(request, f"{name} was deleted.")
+    return redirect("core:settings_database_connections")
+
+
+@login_required
 def settings_ai_providers(request):
     membership = require_company_admin(request.user)
     organization = membership.organization
@@ -205,7 +349,9 @@ def settings_ai_provider_add(request):
             initial={
                 "name": "OpenAI",
                 "provider": AIProviderKey.Provider.OPENAI,
-                "model_name": "gpt-5.4-mini",
+                "model_name": get_default_model_for_provider(
+                    AIProviderKey.Provider.OPENAI
+                ),
             }
         )
 
@@ -216,6 +362,8 @@ def settings_ai_provider_add(request):
             "form": form,
             "membership": membership,
             "organization": organization,
+            "provider_model_choices": get_curated_model_choices_by_provider(),
+            "provider_default_models": get_default_models_by_provider(),
         },
     )
 

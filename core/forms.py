@@ -2,8 +2,12 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
 
-from .ai_provider_models import get_curated_model_choices
-from .models import AIProviderKey, Membership, Organization
+from .ai_provider_models import (
+    get_curated_model_choices,
+    get_default_model_for_provider,
+)
+from .database_connections import DatabaseConnectionError, sanitize_connection_string
+from .models import AIProviderKey, DatabaseConnection, Membership, Organization
 
 
 class OrganizationAwareAuthenticationForm(AuthenticationForm):
@@ -171,21 +175,133 @@ class AIProviderKeyCreateForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        choices = get_curated_model_choices(AIProviderKey.Provider.OPENAI)
+        provider = self._selected_provider()
+        choices = get_curated_model_choices(provider)
+        if provider and not self.initial.get("model_name"):
+            self.initial["model_name"] = get_default_model_for_provider(provider)
         self.fields["model_name"].choices = choices
         self.fields["allowed_model_ids"].choices = choices
         self.fields["allowed_model_ids"].initial = [choice[0] for choice in choices]
 
+    def _selected_provider(self):
+        if self.is_bound:
+            return self.data.get("provider") or AIProviderKey.Provider.OPENAI
+        return self.initial.get("provider") or AIProviderKey.Provider.OPENAI
+
     def clean(self):
         cleaned_data = super().clean()
+        provider = cleaned_data.get("provider")
+        valid_model_ids = {
+            model_id for model_id, _display_name in get_curated_model_choices(provider)
+        }
         model_name = cleaned_data.get("model_name")
         allowed_model_ids = set(cleaned_data.get("allowed_model_ids") or [])
+        if model_name and model_name not in valid_model_ids:
+            self.add_error("model_name", "Choose a curated model for this provider.")
         if model_name and model_name not in allowed_model_ids:
             self.add_error(
                 "allowed_model_ids",
                 "The default model must be allowed.",
             )
         return cleaned_data
+
+
+class DatabaseConnectionCreateForm(forms.ModelForm):
+    connection_string = forms.CharField(
+        label="SQLAlchemy connection string",
+        strip=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 3,
+                "placeholder": "postgresql+psycopg://readonly:password@host:5432/dbname",
+            }
+        ),
+        help_text="Use read-only credentials. The full string is encrypted and never shown again.",
+    )
+
+    class Meta:
+        model = DatabaseConnection
+        fields = ["name", "provider", "enabled"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "provider": forms.Select(attrs={"class": "form-select"}),
+            "enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+        help_texts = {
+            "name": "A friendly label report creators will recognize.",
+            "provider": "This helps the product explain and organize connections. The SQLAlchemy string is still the source of truth.",
+            "enabled": "Allow reports to use this connection.",
+        }
+
+    def clean_connection_string(self):
+        connection_string = self.cleaned_data["connection_string"]
+        try:
+            self.connection_string_preview = sanitize_connection_string(connection_string)
+        except DatabaseConnectionError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        return connection_string
+
+    def save(self, organization):
+        database_connection = super().save(commit=False)
+        database_connection.organization = organization
+        database_connection.set_connection_string(
+            self.cleaned_data["connection_string"],
+            self.connection_string_preview,
+        )
+        database_connection.save()
+        return database_connection
+
+
+class DatabaseConnectionUpdateForm(forms.ModelForm):
+    connection_string = forms.CharField(
+        label="Replace connection string",
+        required=False,
+        strip=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 3,
+            }
+        ),
+        help_text="Leave blank to keep the existing encrypted connection string.",
+    )
+
+    class Meta:
+        model = DatabaseConnection
+        fields = ["name", "provider", "enabled"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "provider": forms.Select(attrs={"class": "form-select"}),
+            "enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+        help_texts = {
+            "name": "A friendly label report creators will recognize.",
+            "provider": "This helps the product explain and organize connections. The SQLAlchemy string is still the source of truth.",
+            "enabled": "Allow reports to use this connection.",
+        }
+
+    def clean_connection_string(self):
+        connection_string = self.cleaned_data["connection_string"]
+        if not connection_string:
+            return connection_string
+        try:
+            self.connection_string_preview = sanitize_connection_string(connection_string)
+        except DatabaseConnectionError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        return connection_string
+
+    def save(self, commit=True):
+        database_connection = super().save(commit=False)
+        connection_string = self.cleaned_data.get("connection_string")
+        if connection_string:
+            database_connection.set_connection_string(
+                connection_string,
+                self.connection_string_preview,
+            )
+        if commit:
+            database_connection.save()
+        return database_connection
 
 
 class AIProviderKeyUpdateForm(forms.ModelForm):
@@ -229,7 +345,12 @@ class AIProviderKeyUpdateForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        choices = get_curated_model_choices(AIProviderKey.Provider.OPENAI)
+        provider = (
+            self.instance.provider
+            if self.instance and self.instance.pk
+            else AIProviderKey.Provider.OPENAI
+        )
+        choices = get_curated_model_choices(provider)
         if self.instance and self.instance.model_name:
             choice_values = {choice[0] for choice in choices}
             if self.instance.model_name not in choice_values:
@@ -251,8 +372,18 @@ class AIProviderKeyUpdateForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        provider = (
+            self.instance.provider
+            if self.instance and self.instance.pk
+            else AIProviderKey.Provider.OPENAI
+        )
+        valid_model_ids = {
+            model_id for model_id, _display_name in get_curated_model_choices(provider)
+        }
         model_name = cleaned_data.get("model_name")
         allowed_model_ids = set(cleaned_data.get("allowed_model_ids") or [])
+        if model_name and model_name not in valid_model_ids:
+            self.add_error("model_name", "Choose a curated model for this provider.")
         if model_name and model_name not in allowed_model_ids:
             self.add_error(
                 "allowed_model_ids",

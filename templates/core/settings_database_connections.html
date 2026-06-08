@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Database Connections - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <a href="{% url 'core:settings_home' %}" class="text-decoration-none">&larr; Company settings</a>
+      <h1 class="h3 mt-3 mb-1">Database Connections</h1>
+      <p class="text-secondary mb-0">
+        Approved SQLAlchemy data sources for {{ organization.name }}.
+      </p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'core:settings_database_connection_add' %}">Add connection</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Provider</th>
+              <th>Connection</th>
+              <th>Status</th>
+              <th>Last test</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for database_connection in database_connections %}
+              <tr>
+                <td>{{ database_connection.name }}</td>
+                <td>{{ database_connection.get_provider_display }}</td>
+                <td><code>{{ database_connection.connection_string_preview }}</code></td>
+                <td>{{ database_connection.enabled|yesno:"Enabled,Disabled" }}</td>
+                <td>
+                  {% if database_connection.last_tested_at %}
+                    {{ database_connection.last_test_succeeded|yesno:"Passed,Failed" }}
+                  {% else %}
+                    <span class="text-secondary">Not tested</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  <div class="d-flex justify-content-end gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:settings_database_connection_detail' database_connection.id %}">Manage</a>
+                    <form
+                      method="post"
+                      action="{% url 'core:settings_database_connection_delete' database_connection.id %}"
+                      onsubmit="return confirm('Delete this database connection? Reports using it will stop working.');"
+                    >
+                      {% csrf_token %}
+                      <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6" class="text-secondary">No database connections configured yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+{% endblock %}

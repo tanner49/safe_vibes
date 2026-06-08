@@ -83,6 +83,8 @@ class Membership(models.Model):
 class AIProviderKey(models.Model):
     class Provider(models.TextChoices):
         OPENAI = "openai", "OpenAI"
+        ANTHROPIC = "anthropic", "Claude"
+        GEMINI = "gemini", "Gemini"
 
     organization = models.ForeignKey(
         Organization,
@@ -178,3 +180,51 @@ class AIProviderModel(models.Model):
 
     def __str__(self):
         return self.provider_model_id
+
+
+class DatabaseConnection(models.Model):
+    class Provider(models.TextChoices):
+        POSTGRES = "postgres", "Postgres"
+        SNOWFLAKE = "snowflake", "Snowflake"
+        BIGQUERY = "bigquery", "BigQuery"
+        SQLITE = "sqlite", "SQLite"
+        OTHER = "other", "Other SQLAlchemy"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="database_connections",
+    )
+    name = models.CharField(max_length=255)
+    provider = models.CharField(
+        max_length=30,
+        choices=Provider.choices,
+        default=Provider.POSTGRES,
+    )
+    encrypted_connection_string = models.TextField()
+    connection_string_preview = models.CharField(max_length=500, blank=True)
+    enabled = models.BooleanField(default=True)
+    last_tested_at = models.DateTimeField(null=True, blank=True)
+    last_test_succeeded = models.BooleanField(null=True, blank=True)
+    last_test_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["provider", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_database_connection_name_per_organization",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_provider_display()})"
+
+    def set_connection_string(self, connection_string, preview):
+        self.encrypted_connection_string = encrypt_text(connection_string)
+        self.connection_string_preview = preview
+
+    def get_connection_string(self):
+        return decrypt_text(self.encrypted_connection_string)

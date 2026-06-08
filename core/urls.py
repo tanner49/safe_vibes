@@ -14,6 +14,31 @@ urlpatterns = [
         views.settings_report_limits,
         name="settings_report_limits",
     ),
+    path(
+        "settings/connections/",
+        views.settings_database_connections,
+        name="settings_database_connections",
+    ),
+    path(
+        "settings/connections/add/",
+        views.settings_database_connection_add,
+        name="settings_database_connection_add",
+    ),
+    path(
+        "settings/connections/<int:connection_id>/test/",
+        views.settings_database_connection_test,
+        name="settings_database_connection_test",
+    ),
+    path(
+        "settings/connections/<int:connection_id>/delete/",
+        views.settings_database_connection_delete,
+        name="settings_database_connection_delete",
+    ),
+    path(
+        "settings/connections/<int:connection_id>/",
+        views.settings_database_connection_detail,
+        name="settings_database_connection_detail",
+    ),
     path("settings/users/add/", views.settings_user_add, name="settings_user_add"),
     path(
         "settings/users/<int:membership_id>/remove/",

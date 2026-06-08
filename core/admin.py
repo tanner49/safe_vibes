@@ -4,6 +4,7 @@ from .models import (
     AIModelCatalog,
     AIProviderKey,
     AIProviderModel,
+    DatabaseConnection,
     Membership,
     Organization,
 )
@@ -92,3 +93,27 @@ class AIModelCatalogAdmin(admin.ModelAdmin):
     list_filter = ["provider", "enabled"]
     search_fields = ["display_name", "model_id"]
     ordering = ["provider", "sort_order", "display_name"]
+
+
+@admin.register(DatabaseConnection)
+class DatabaseConnectionAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "organization",
+        "provider",
+        "enabled",
+        "last_test_succeeded",
+        "last_tested_at",
+        "created_at",
+    ]
+    list_filter = ["provider", "enabled", "last_test_succeeded", "organization"]
+    search_fields = ["name", "organization__name", "connection_string_preview"]
+    readonly_fields = [
+        "connection_string_preview",
+        "last_tested_at",
+        "last_test_succeeded",
+        "last_test_error",
+        "created_at",
+        "updated_at",
+    ]
+    exclude = ["encrypted_connection_string"]
