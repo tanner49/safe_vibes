@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Report Policy - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="mb-4">
+        <a href="{% url 'core:settings_home' %}" class="text-decoration-none">&larr; Company settings</a>
+        <h1 class="h3 mt-3 mb-1">Edit Report Policy</h1>
+        <p class="text-secondary mb-0">
+          These values apply only to {{ organization.name }}. They override the
+          app defaults copied in when the organization was created.
+        </p>
+      </div>
+
+      <section class="card">
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="form-check form-switch mb-4">
+              {{ form.sso_required }}
+              <label class="form-check-label" for="{{ form.sso_required.id_for_label }}">
+                Require SSO for this organization
+              </label>
+              <div class="form-text">{{ form.sso_required.help_text }}</div>
+              {{ form.sso_required.errors }}
+            </div>
+
+            <div class="row g-3">
+              {% for field in form %}
+                {% if field.name != "sso_required" %}
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    <div class="form-text">{{ field.help_text }}</div>
+                    {{ field.errors }}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+              <button class="btn btn-primary" type="submit">Save policy</button>
+              <a class="btn btn-outline-secondary" href="{% url 'core:settings_home' %}">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

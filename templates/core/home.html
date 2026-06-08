@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}{{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <h1 class="display-6 fw-semibold">{{ app_name }}</h1>
+      <p class="lead text-secondary">
+        A governed home for AI-generated HTML reports, approved SQL access,
+        caching, sharing, and audit trails.
+      </p>
+      <div class="d-flex gap-2">
+        <a class="btn btn-primary" href="{% url 'login' %}">Log in</a>
+        <a class="btn btn-outline-secondary" href="{% url 'admin:index' %}">Open Django Admin</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}

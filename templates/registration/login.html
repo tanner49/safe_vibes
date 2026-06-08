@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Log In - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-md-7 col-lg-5">
+      <section class="card">
+        <div class="card-body">
+          <h1 class="h4 mb-3">Log in</h1>
+          <form method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">
+                {{ form.non_field_errors }}
+              </div>
+            {% endif %}
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.username.id_for_label }}">Email</label>
+              <input
+                class="form-control"
+                id="{{ form.username.id_for_label }}"
+                name="{{ form.username.html_name }}"
+                type="email"
+                autocomplete="email"
+                required
+              >
+              {{ form.username.errors }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.password.id_for_label }}">Password</label>
+              <input
+                class="form-control"
+                id="{{ form.password.id_for_label }}"
+                name="{{ form.password.html_name }}"
+                type="password"
+                autocomplete="current-password"
+                required
+              >
+              {{ form.password.errors }}
+            </div>
+            <button class="btn btn-primary w-100" type="submit">Log in</button>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

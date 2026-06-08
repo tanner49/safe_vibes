@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}AI Provider - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <a href="{% url 'core:settings_ai_providers' %}" class="text-decoration-none">&larr; AI providers</a>
+      <h1 class="h3 mt-3 mb-1">{{ provider_key.name }}</h1>
+      <p class="text-secondary mb-0">
+        Manage this provider key and the curated models report creators may use.
+      </p>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <h2 class="h5">Provider Key</h2>
+            <p class="text-secondary">
+              Stored key: ****{{ provider_key.key_last_four }}
+            </p>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+              {{ form.name }}
+              <div class="form-text">{{ form.name.help_text }}</div>
+              {{ form.name.errors }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.model_name.id_for_label }}">Default model</label>
+              {{ form.model_name }}
+              <div class="form-text">{{ form.model_name.help_text }}</div>
+              {{ form.model_name.errors }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="{{ form.api_key.id_for_label }}">Replace API key</label>
+              {{ form.api_key }}
+              <div class="form-text">{{ form.api_key.help_text }}</div>
+              {{ form.api_key.errors }}
+            </div>
+          </div>
+
+          <div class="col-lg-7">
+            <h2 class="h5 mb-1">Allowed Models</h2>
+            <p class="text-secondary">
+              This curated list avoids specialized models like audio, transcription, image, and dated snapshots.
+            </p>
+            <div class="row g-2">
+              {% for choice in form.allowed_model_ids %}
+                <div class="col-sm-6">
+                  <label class="form-check border rounded-2 p-2 h-100" for="{{ choice.id_for_label }}">
+                    {{ choice.tag }}
+                    <span class="form-check-label">{{ choice.choice_label }}</span>
+                    {% if choice.data.value == form.model_name.value %}
+                      <span class="badge text-bg-light border ms-1">Default</span>
+                    {% endif %}
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+            {{ form.allowed_model_ids.errors }}
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-4">
+          <button class="btn btn-primary" type="submit">Save provider key</button>
+          <a class="btn btn-outline-secondary" href="{% url 'core:settings_ai_providers' %}">Cancel</a>
+        </div>
+      </form>
+
+      <hr class="my-4">
+
+      <form
+        method="post"
+        action="{% url 'core:settings_ai_provider_delete' provider_key.id %}"
+        onsubmit="return confirm('Delete this provider key? This cannot be undone.');"
+      >
+        {% csrf_token %}
+        <button class="btn btn-outline-danger" type="submit">Delete provider key</button>
+      </form>
+    </div>
+  </section>
+{% endblock %}

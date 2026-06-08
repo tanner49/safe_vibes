@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Company Settings</h1>
+      <p class="text-secondary mb-0">
+        Customer-facing controls for {{ organization.name }}.
+      </p>
+    </div>
+    <div class="d-flex gap-2">
+      {% if not organization.sso_required %}
+        <a class="btn btn-outline-primary" href="{% url 'core:settings_user_add' %}">Add user</a>
+      {% endif %}
+      <a class="btn btn-outline-primary" href="{% url 'core:settings_ai_providers' %}">AI providers</a>
+      <a class="btn btn-primary" href="{% url 'core:settings_report_limits' %}">Edit policy</a>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <section class="card">
+        <div class="card-body">
+          <h2 class="h5">Access Policy</h2>
+          <dl class="row mb-0">
+            <dt class="col-sm-5">Organization</dt>
+            <dd class="col-sm-7">{{ organization.name }}</dd>
+            <dt class="col-sm-5">Slug</dt>
+            <dd class="col-sm-7">{{ organization.slug }}</dd>
+            <dt class="col-sm-5">SSO required</dt>
+            <dd class="col-sm-7">{{ organization.sso_required|yesno:"Yes,No" }}</dd>
+          </dl>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-lg-6">
+      <section class="card">
+        <div class="card-body">
+          <h2 class="h5">Report Limits</h2>
+          <dl class="row mb-0">
+            <dt class="col-sm-7">Query timeout</dt>
+            <dd class="col-sm-5">{{ organization.query_timeout_seconds }} seconds</dd>
+            <dt class="col-sm-7">Cache TTL</dt>
+            <dd class="col-sm-5">{{ organization.cache_ttl_seconds }} seconds</dd>
+            <dt class="col-sm-7">Max rows</dt>
+            <dd class="col-sm-5">{{ organization.max_rows }}</dd>
+            <dt class="col-sm-7">Max raw bytes</dt>
+            <dd class="col-sm-5">{{ organization.max_raw_bytes }}</dd>
+            <dt class="col-sm-7">Max compressed bytes</dt>
+            <dd class="col-sm-5">{{ organization.max_compressed_bytes }}</dd>
+          </dl>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12">
+      <section class="card">
+        <div class="card-body">
+          <h2 class="h5">Members</h2>
+          {% if organization.sso_required %}
+            <p class="text-secondary">
+              SSO is required for this organization, so user access should be managed through your identity provider.
+            </p>
+          {% endif %}
+          <div class="table-responsive">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Product role</th>
+                  {% if not organization.sso_required %}
+                    <th class="text-end">Actions</th>
+                  {% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for member in memberships %}
+                  <tr>
+                    <td>{{ member.user.get_full_name|default:"-" }}</td>
+                    <td>{{ member.user.email|default:"-" }}</td>
+                    <td>{{ member.get_role_display }}</td>
+                    {% if not organization.sso_required %}
+                      <td class="text-end">
+                        {% if member.user_id == user.id %}
+                          <span class="text-secondary">You</span>
+                        {% else %}
+                          <form method="post" action="{% url 'core:settings_user_remove' member.id %}">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-secondary" type="submit">Remove</button>
+                          </form>
+                        {% endif %}
+                      </td>
+                    {% endif %}
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td colspan="{% if organization.sso_required %}3{% else %}4{% endif %}" class="text-secondary">No members yet.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

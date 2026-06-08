@@ -1,0 +1,12 @@
+# Optional SQLAlchemy database drivers.
+#
+# Keep these separate from the core app requirements so the Django project can
+# install cleanly while warehouse-driver dependency trees evolve independently.
+
+# Postgres is included in requirements.txt via psycopg[binary].
+
+# Snowflake support.
+snowflake-sqlalchemy>=1.7,<2.0
+
+# BigQuery support.
+sqlalchemy-bigquery>=1.13,<2.0

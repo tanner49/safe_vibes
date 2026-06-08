@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <h1 class="h3">Reports</h1>
+      {% if organization %}
+        <p class="text-secondary mb-0">
+          Report list, generation flow, sharing, and sandbox runtime come next
+          for {{ organization.name }}.
+        </p>
+      {% else %}
+        <div class="alert alert-warning mb-0">
+          You need an organization membership before reports can be scoped safely.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
