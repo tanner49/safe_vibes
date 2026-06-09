@@ -7,6 +7,11 @@ from .models import (
     DatabaseConnection,
     Membership,
     Organization,
+    QueryExecutionLog,
+    Report,
+    ReportChatMessage,
+    ReportDatasetCache,
+    ReportDatasetCacheLock,
 )
 
 
@@ -117,3 +122,98 @@ class DatabaseConnectionAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     exclude = ["encrypted_connection_string"]
+
+
+@admin.register(QueryExecutionLog)
+class QueryExecutionLogAdmin(admin.ModelAdmin):
+    list_display = [
+        "created_at",
+        "organization",
+        "database_connection",
+        "user",
+        "succeeded",
+        "row_count",
+        "raw_bytes",
+        "duration_ms",
+    ]
+    list_filter = ["succeeded", "organization", "database_connection"]
+    search_fields = [
+        "organization__name",
+        "database_connection__name",
+        "user__email",
+        "sql_preview",
+        "error_message",
+    ]
+    readonly_fields = [
+        "organization",
+        "database_connection",
+        "user",
+        "sql_preview",
+        "succeeded",
+        "row_count",
+        "raw_bytes",
+        "duration_ms",
+        "error_message",
+        "created_at",
+    ]
+
+
+class ReportChatMessageInline(admin.TabularInline):
+    model = ReportChatMessage
+    extra = 0
+    readonly_fields = ["user", "role", "content", "created_at"]
+    can_delete = False
+
+
+@admin.register(Report)
+class ReportAdmin(admin.ModelAdmin):
+    list_display = ["title", "organization", "owner", "database_connection", "status", "updated_at"]
+    list_filter = ["status", "organization", "database_connection"]
+    search_fields = ["title", "primary_sql", "html", "owner__email", "organization__name"]
+    autocomplete_fields = ["organization", "owner", "database_connection", "ai_provider_key"]
+    inlines = [ReportChatMessageInline]
+
+
+@admin.register(ReportChatMessage)
+class ReportChatMessageAdmin(admin.ModelAdmin):
+    list_display = ["report", "role", "user", "created_at"]
+    list_filter = ["role", "report__organization"]
+    search_fields = ["report__title", "user__email", "content"]
+
+
+@admin.register(ReportDatasetCache)
+class ReportDatasetCacheAdmin(admin.ModelAdmin):
+    list_display = [
+        "report",
+        "organization",
+        "dataset_name",
+        "row_count",
+        "raw_bytes",
+        "compressed_bytes",
+        "expires_at",
+        "updated_at",
+    ]
+    list_filter = ["organization", "dataset_name", "expires_at"]
+    search_fields = ["report__title", "organization__name", "sql_preview", "cache_key"]
+    readonly_fields = [
+        "organization",
+        "report",
+        "database_connection",
+        "dataset_name",
+        "cache_key",
+        "sql_preview",
+        "raw_bytes",
+        "compressed_bytes",
+        "row_count",
+        "expires_at",
+        "created_at",
+        "updated_at",
+    ]
+    exclude = ["compressed_payload"]
+
+
+@admin.register(ReportDatasetCacheLock)
+class ReportDatasetCacheLockAdmin(admin.ModelAdmin):
+    list_display = ["cache_key", "created_at", "updated_at"]
+    search_fields = ["cache_key"]
+    readonly_fields = ["cache_key", "created_at", "updated_at"]

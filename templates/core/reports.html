@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <style>
+    .share-dialog {
+      width: min(620px, calc(100vw - 2rem));
+      border: 1px solid var(--sr-border);
+      border-radius: 8px;
+      padding: 0;
+      box-shadow: var(--sr-shadow-md);
+    }
+
+    .share-dialog::backdrop {
+      background: rgba(17, 17, 17, 0.28);
+    }
+
+    .share-user-list {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .share-combobox {
+      position: relative;
+    }
+
+    .share-dropdown {
+      position: absolute;
+      z-index: 20;
+      left: 0;
+      right: 0;
+      top: calc(100% + 0.25rem);
+      max-height: 240px;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid var(--sr-border-strong);
+      border-radius: 6px;
+      box-shadow: 0 12px 32px rgba(17, 17, 17, 0.12);
+    }
+
+    .share-dropdown[hidden] {
+      display: none;
+    }
+
+    .share-option {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+
+    .share-option:hover,
+    .share-option:focus {
+      background: #f7f7f7;
+      outline: 0;
+    }
+  </style>
+
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Reports</h1>
+      <p class="text-secondary mb-0">Published reports for {{ organization.name }}. Drafts live in the builder.</p>
+    </div>
+    <a class="btn btn-primary" href="{% url 'core:builder_home' %}">Open builder</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Database</th>
+              <th>Status</th>
+              <th>Sharing</th>
+              <th>Owner</th>
+              <th>Updated</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for report in reports %}
+              <tr>
+                <td>{{ report.title }}</td>
+                <td>{{ report.database_connection.name|default:"AI has not selected one yet" }}</td>
+                <td>{{ report.get_status_display }}</td>
+                <td>
+                  {% if report.sharing_scope == "organization" %}
+                    Everyone in org
+                  {% elif report.shared_with.exists %}
+                    Specific people
+                  {% else %}
+                    Owner only
+                  {% endif %}
+                </td>
+                <td>{{ report.owner.email|default:"-" }}</td>
+                <td>{{ report.updated_at|date:"M j, Y" }}</td>
+                <td class="text-end">
+                  <div class="d-inline-flex align-items-center gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:report_preview' report.id %}" target="_blank">Open</a>
+                    {% if report.can_manage %}
+                      <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:report_builder' report.id %}">Edit</a>
+                      <button
+                        class="btn btn-sm btn-outline-secondary"
+                        type="button"
+                        data-share-open
+                        data-report-title="{{ report.title }}"
+                        data-share-url="{% url 'core:report_share' report.id %}"
+                        data-share-options-url="{% url 'core:report_share_options' report.id %}"
+                      >Share</button>
+                      <form method="post" action="{% url 'core:report_delete' report.id %}" onsubmit="return confirm('Delete this report? This cannot be undone.');">
+                        {% csrf_token %}
+                        <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="7" class="text-secondary">No published reports yet. Use the builder to create and publish one.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="share-dialog" class="share-dialog">
+    <form id="share-form" method="post">
+      {% csrf_token %}
+      <div class="border-bottom p-3 d-flex align-items-start justify-content-between gap-3">
+        <div>
+          <h2 class="h5 mb-1">Share report</h2>
+          <p id="share-report-title" class="text-secondary mb-0 small"></p>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-share-close>Close</button>
+      </div>
+
+      <div class="p-3">
+        <div class="mb-3">
+          <label class="form-label" for="share-scope">Who can view this report?</label>
+          <select id="share-scope" class="form-select" name="sharing_scope">
+            <option value="private">Only me and selected people</option>
+            <option value="organization">Everyone in my organization</option>
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="share-search">Add people by email</label>
+          <div class="share-combobox">
+            <input
+              id="share-search"
+              class="form-control"
+              type="search"
+              autocomplete="off"
+              placeholder="Search by email..."
+              aria-controls="share-dropdown"
+              aria-expanded="false"
+            >
+            <div id="share-dropdown" class="share-dropdown" hidden></div>
+          </div>
+          <div class="form-text">Showing the first matching people in your organization.</div>
+        </div>
+
+        <div class="mb-3">
+          <div class="fw-semibold small mb-2">Selected people</div>
+          <div id="share-selected" class="share-user-list border rounded-2 p-2 text-secondary small">No specific people selected.</div>
+          <div id="share-hidden-inputs"></div>
+        </div>
+      </div>
+
+      <div class="border-top p-3 d-flex justify-content-end gap-2">
+        <button class="btn btn-outline-secondary" type="button" data-share-close>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save sharing</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (function () {
+      const dialog = document.getElementById("share-dialog");
+      const form = document.getElementById("share-form");
+      const title = document.getElementById("share-report-title");
+      const scope = document.getElementById("share-scope");
+      const search = document.getElementById("share-search");
+      const dropdown = document.getElementById("share-dropdown");
+      const selected = document.getElementById("share-selected");
+      const hiddenInputs = document.getElementById("share-hidden-inputs");
+      if (!dialog || !form) return;
+
+      let optionsUrl = "";
+      let selectedUsers = new Map();
+      let searchTimer = null;
+
+      function renderSelected() {
+        hiddenInputs.replaceChildren();
+        selected.replaceChildren();
+        if (!selectedUsers.size) {
+          selected.className = "share-user-list border rounded-2 p-2 text-secondary small";
+          selected.textContent = "No specific people selected.";
+          return;
+        }
+        selected.className = "share-user-list border rounded-2 p-2";
+        selectedUsers.forEach(function (user) {
+          const row = document.createElement("div");
+          row.className = "d-flex align-items-center justify-content-between gap-2 py-1";
+          const label = document.createElement("span");
+          label.textContent = user.email;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "btn btn-sm btn-outline-secondary";
+          remove.textContent = "Remove";
+          remove.addEventListener("click", function () {
+            selectedUsers.delete(String(user.id));
+            renderSelected();
+            loadAndRenderOptions(search.value.trim());
+          });
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "shared_with";
+          input.value = user.id;
+          row.appendChild(label);
+          row.appendChild(remove);
+          selected.appendChild(row);
+          hiddenInputs.appendChild(input);
+        });
+      }
+
+      function renderDropdown(users) {
+        dropdown.replaceChildren();
+        if (!users.length) {
+          const empty = document.createElement("div");
+          empty.className = "p-2 text-secondary small";
+          empty.textContent = search.value.trim() ? "No matching people found." : "No people found.";
+          dropdown.appendChild(empty);
+          dropdown.hidden = false;
+          search.setAttribute("aria-expanded", "true");
+          return;
+        }
+        users.forEach(function (user) {
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = "share-option";
+          option.textContent = selectedUsers.has(String(user.id)) ? user.email + " (added)" : user.email;
+          option.disabled = selectedUsers.has(String(user.id));
+          option.addEventListener("click", function () {
+            selectedUsers.set(String(user.id), user);
+            renderSelected();
+            search.value = "";
+            dropdown.hidden = true;
+            search.setAttribute("aria-expanded", "false");
+            search.focus();
+          });
+          dropdown.appendChild(option);
+        });
+        dropdown.hidden = false;
+        search.setAttribute("aria-expanded", "true");
+      }
+
+      async function loadOptions(query) {
+        const url = new URL(optionsUrl, window.location.origin);
+        if (query) url.searchParams.set("q", query);
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error("Could not load sharing options.");
+        return await response.json();
+      }
+
+      async function loadAndRenderOptions(query) {
+        const data = await loadOptions(query);
+        renderDropdown(data.results || []);
+      }
+
+      document.querySelectorAll("[data-share-open]").forEach(function (button) {
+        button.addEventListener("click", async function () {
+          form.action = button.dataset.shareUrl;
+          optionsUrl = button.dataset.shareOptionsUrl;
+          title.textContent = button.dataset.reportTitle || "";
+          search.value = "";
+          selectedUsers = new Map();
+          renderSelected();
+          dialog.showModal();
+          const data = await loadOptions("");
+          scope.value = data.sharing_scope || "private";
+          (data.shared_users || []).forEach(function (user) {
+            selectedUsers.set(String(user.id), user);
+          });
+          renderSelected();
+          renderDropdown(data.results || []);
+          search.focus();
+        });
+      });
+
+      search.addEventListener("input", function () {
+        window.clearTimeout(searchTimer);
+        const query = search.value.trim();
+        searchTimer = window.setTimeout(async function () {
+          await loadAndRenderOptions(query);
+        }, 180);
+      });
+
+      search.addEventListener("focus", async function () {
+        await loadAndRenderOptions(search.value.trim());
+      });
+
+      document.addEventListener("click", function (event) {
+        if (dialog.contains(event.target) && event.target !== search && !dropdown.contains(event.target)) {
+          dropdown.hidden = true;
+          search.setAttribute("aria-expanded", "false");
+        }
+      });
+
+      document.querySelectorAll("[data-share-close]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          dialog.close();
+        });
+      });
+    })();
+  </script>
+{% endblock %}

@@ -16,6 +16,18 @@ The app defaults to SQLite for local development. Set `DATABASE_URL` to use Post
 
 Optional warehouse drivers live in `requirements-db-drivers.txt` so the core Django app can stay easy to install while Snowflake and BigQuery dependencies evolve independently.
 
+## Local Demo Data Service
+
+Test-only local services live under `services/`. To run a disposable Postgres
+database with fake SaaS sales data:
+
+```powershell
+docker compose -f services/docker-compose.postgres.yml up -d
+python services/seed_demo_postgres.py
+```
+
+See `services/README.md` for the connection details.
+
 ## Bootstrap An Organization
 
 Create a Django superuser for local admin access:

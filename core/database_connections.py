@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -20,6 +20,63 @@ def sanitize_connection_string(connection_string):
         return make_url(connection_string).render_as_string(hide_password=True)
     except Exception as exc:
         raise DatabaseConnectionError("Enter a valid SQLAlchemy connection string.") from exc
+
+
+def build_postgres_connection_string(host, port, database, username, password, sslmode):
+    query = {"sslmode": sslmode} if sslmode else {}
+    return URL.create(
+        "postgresql+psycopg",
+        username=username,
+        password=password,
+        host=host,
+        port=int(port) if port else None,
+        database=database,
+        query=query,
+    ).render_as_string(hide_password=False)
+
+
+def build_snowflake_connection_string(
+    account,
+    username,
+    password,
+    database,
+    schema,
+    warehouse,
+    role,
+):
+    query = {}
+    if warehouse:
+        query["warehouse"] = warehouse
+    if role:
+        query["role"] = role
+    return URL.create(
+        "snowflake",
+        username=username,
+        password=password,
+        host=account,
+        database="/".join(part for part in [database, schema] if part),
+        query=query,
+    ).render_as_string(hide_password=False)
+
+
+def build_bigquery_connection_string(project_id, dataset_id, credentials_path):
+    query = {}
+    if credentials_path:
+        query["credentials_path"] = credentials_path
+    return URL.create(
+        "bigquery",
+        host=project_id,
+        database=dataset_id,
+        query=query,
+    ).render_as_string(hide_password=False)
+
+
+def build_sqlite_connection_string(path):
+    if path == ":memory:":
+        return "sqlite:///:memory:"
+    return URL.create("sqlite", database=path.replace("\\", "/")).render_as_string(
+        hide_password=False
+    )
 
 
 def redact_connection_error(message, connection_string):

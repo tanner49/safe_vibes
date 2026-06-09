@@ -3,14 +3,18 @@
 {% block title %}Add Database Connection - {{ app_name }}{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-lg-8">
-      <div class="mb-4">
-        <a href="{% url 'core:settings_database_connections' %}" class="text-decoration-none">&larr; Database connections</a>
-        <h1 class="h3 mt-3 mb-1">Add Database Connection</h1>
-        <p class="text-secondary mb-0">
-          Add a read-only SQLAlchemy connection string for report data.
-        </p>
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Database connections</div>
+          <h1 class="h3 mb-1">Add Database Connection</h1>
+          <p class="text-secondary mb-0">
+            Add a read-only data source for report data.
+          </p>
+        </div>
       </div>
 
       <section class="card">
@@ -35,8 +39,115 @@
                 <div class="form-text">{{ form.provider.help_text }}</div>
                 {{ form.provider.errors }}
               </div>
-              <div class="col-12">
-                <label class="form-label" for="{{ form.connection_string.id_for_label }}">SQLAlchemy connection string</label>
+              <div class="col-12" data-provider-fields="postgres">
+                <h2 class="h5 mt-2">Postgres details</h2>
+                <div class="row g-3">
+                  <div class="col-md-8">
+                    <label class="form-label" for="{{ form.db_host.id_for_label }}">Host</label>
+                    {{ form.db_host }}
+                    {{ form.db_host.errors }}
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label" for="{{ form.db_port.id_for_label }}">Port</label>
+                    {{ form.db_port }}
+                    {{ form.db_port.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.db_name.id_for_label }}">Database</label>
+                    {{ form.db_name }}
+                    {{ form.db_name.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.postgres_sslmode.id_for_label }}">SSL mode</label>
+                    {{ form.postgres_sslmode }}
+                    {{ form.postgres_sslmode.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.db_username.id_for_label }}">Username</label>
+                    {{ form.db_username }}
+                    {{ form.db_username.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.db_password.id_for_label }}">Password</label>
+                    {{ form.db_password }}
+                    {{ form.db_password.errors }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-12" data-provider-fields="snowflake" hidden>
+                <h2 class="h5 mt-2">Snowflake details</h2>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_account.id_for_label }}">Account identifier</label>
+                    {{ form.snowflake_account }}
+                    {{ form.snowflake_account.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_warehouse.id_for_label }}">Warehouse</label>
+                    {{ form.snowflake_warehouse }}
+                    {{ form.snowflake_warehouse.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_database.id_for_label }}">Database</label>
+                    {{ form.snowflake_database }}
+                    {{ form.snowflake_database.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_schema.id_for_label }}">Schema</label>
+                    {{ form.snowflake_schema }}
+                    {{ form.snowflake_schema.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_username.id_for_label }}">Username</label>
+                    {{ form.snowflake_username }}
+                    {{ form.snowflake_username.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_password.id_for_label }}">Password</label>
+                    {{ form.snowflake_password }}
+                    {{ form.snowflake_password.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.snowflake_role.id_for_label }}">Role</label>
+                    {{ form.snowflake_role }}
+                    {{ form.snowflake_role.errors }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-12" data-provider-fields="bigquery" hidden>
+                <h2 class="h5 mt-2">BigQuery details</h2>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.bigquery_project.id_for_label }}">Project ID</label>
+                    {{ form.bigquery_project }}
+                    {{ form.bigquery_project.errors }}
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label" for="{{ form.bigquery_dataset.id_for_label }}">Dataset</label>
+                    {{ form.bigquery_dataset }}
+                    {{ form.bigquery_dataset.errors }}
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label" for="{{ form.bigquery_credentials_path.id_for_label }}">Service account JSON path</label>
+                    {{ form.bigquery_credentials_path }}
+                    <div class="form-text">{{ form.bigquery_credentials_path.help_text }}</div>
+                    {{ form.bigquery_credentials_path.errors }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-12" data-provider-fields="sqlite" hidden>
+                <h2 class="h5 mt-2">SQLite details</h2>
+                <label class="form-label" for="{{ form.sqlite_path.id_for_label }}">SQLite database path</label>
+                {{ form.sqlite_path }}
+                {{ form.sqlite_path.errors }}
+              </div>
+
+              <div class="col-12" data-provider-fields="custom" hidden>
+                <h2 class="h5 mt-2">Custom connection string</h2>
+                <label class="form-label" for="{{ form.connection_string.id_for_label }}">Connection string</label>
                 {{ form.connection_string }}
                 <div class="form-text">{{ form.connection_string.help_text }}</div>
                 {{ form.connection_string.errors }}
@@ -59,4 +170,21 @@
       </section>
     </div>
   </div>
+
+  <script>
+    (function () {
+      const provider = document.getElementById("id_provider");
+      const sections = document.querySelectorAll("[data-provider-fields]");
+      if (!provider || !sections.length) return;
+
+      function updateProviderFields() {
+        sections.forEach(function (section) {
+          section.hidden = section.dataset.providerFields !== provider.value;
+        });
+      }
+
+      provider.addEventListener("change", updateProviderFields);
+      updateProviderFields();
+    })();
+  </script>
 {% endblock %}

@@ -1,0 +1,21 @@
+{% for message in report.chat_messages.all %}
+  <div class="chat-message {{ message.role }} mb-3">
+    <div class="fw-semibold mb-1">{{ message.get_role_display }}</div>
+    <div class="text-secondary" style="white-space: pre-wrap;">{{ message.content }}</div>
+    {% if message.artifact.primary_sql or message.artifact.html %}
+      <details class="mt-2">
+        <summary>Report changes</summary>
+        {% if message.artifact.primary_sql %}
+          <div class="fw-semibold mt-2">SQL</div>
+          <pre class="border rounded-2 p-2 mt-1 small">{{ message.artifact.primary_sql }}</pre>
+        {% endif %}
+        {% if message.artifact.html %}
+          <div class="fw-semibold mt-2">HTML</div>
+          <pre class="border rounded-2 p-2 mt-1 small">{{ message.artifact.html }}</pre>
+        {% endif %}
+      </details>
+    {% endif %}
+  </div>
+{% empty %}
+  <p class="text-secondary mb-0">Tell the assistant what you want to build.</p>
+{% endfor %}

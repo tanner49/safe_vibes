@@ -1,0 +1,25 @@
+{% with current=request.resolver_match.url_name %}
+  <aside class="settings-sidebar" aria-label="Settings sections">
+    <div class="settings-sidebar-title">
+      <div class="page-kicker">Settings</div>
+      <div class="fw-semibold">{{ organization.name }}</div>
+    </div>
+    <nav class="settings-nav">
+      <a class="settings-nav-link {% if current == 'settings_home' %}active{% endif %}" href="{% url 'core:settings_home' %}">
+        Overview
+      </a>
+      <a class="settings-nav-link {% if current == 'settings_users' or current == 'settings_user_add' %}active{% endif %}" href="{% url 'core:settings_users' %}">
+        Users
+      </a>
+      <a class="settings-nav-link {% if current == 'settings_ai_providers' or current == 'settings_ai_provider_add' or current == 'settings_ai_provider_detail' %}active{% endif %}" href="{% url 'core:settings_ai_providers' %}">
+        AI providers
+      </a>
+      <a class="settings-nav-link {% if current == 'settings_database_connections' or current == 'settings_database_connection_add' or current == 'settings_database_connection_detail' %}active{% endif %}" href="{% url 'core:settings_database_connections' %}">
+        Database connections
+      </a>
+      <a class="settings-nav-link {% if current == 'settings_report_limits' %}active{% endif %}" href="{% url 'core:settings_report_limits' %}">
+        Report policy
+      </a>
+    </nav>
+  </aside>
+{% endwith %}

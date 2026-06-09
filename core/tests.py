@@ -1,6 +1,16 @@
+import os
+import sqlite3
+import sys
+import tempfile
+import types
+from pathlib import Path
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from .ai_provider_models import (
     CURATED_ANTHROPIC_MODELS,
@@ -9,6 +19,9 @@ from .ai_provider_models import (
     sync_provider_models,
 )
 from .database_connections import redact_connection_error
+from .ai_clients import AIMessage, generate_openai_text, provider_error_message, stream_openai_text
+from .query_execution import QueryPolicyError, execute_query
+from .report_generation import ReportGenerationError
 from .forms import AIProviderKeyCreateForm, DatabaseConnectionCreateForm
 from .models import (
     AIModelCatalog,
@@ -17,6 +30,11 @@ from .models import (
     DatabaseConnection,
     Membership,
     Organization,
+    QueryExecutionLog,
+    Report,
+    ReportChatMessage,
+    ReportDatasetCache,
+    ReportDatasetCacheLock,
 )
 
 
@@ -42,6 +60,162 @@ class OrganizationModelTests(TestCase):
         organization = Organization.objects.create(name="Acme Revenue Team")
 
         self.assertEqual(organization.slug, "acme-revenue-team")
+
+
+class AIClientTests(TestCase):
+    def test_provider_error_message_summarizes_auth_failure(self):
+        class ProviderException(Exception):
+            status_code = 401
+            code = "invalid_api_key"
+
+        message = provider_error_message("OpenAI", ProviderException("raw provider error"))
+
+        self.assertEqual(
+            message,
+            "OpenAI authentication failed. Check the saved API key.",
+        )
+
+    def test_openai_generate_uses_modern_completion_token_parameter(self):
+        created_kwargs = {}
+
+        class FakeOpenAIClient:
+            def __init__(self, api_key):
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self.create)
+                )
+
+            def create(self, **kwargs):
+                created_kwargs.update(kwargs)
+                message = types.SimpleNamespace(content="ok")
+                choice = types.SimpleNamespace(message=message)
+                return types.SimpleNamespace(choices=[choice])
+
+        fake_openai = types.SimpleNamespace(
+            OpenAI=FakeOpenAIClient,
+            OpenAIError=Exception,
+        )
+
+        with patch.dict(sys.modules, {"openai": fake_openai}):
+            response = generate_openai_text(
+                "gpt-5.4-mini",
+                "sk-test",
+                [AIMessage(role="user", content="Build a report.")],
+                "System prompt",
+                1234,
+            )
+
+        self.assertEqual(response.content, "ok")
+        self.assertEqual(created_kwargs["max_completion_tokens"], 1234)
+        self.assertNotIn("max_tokens", created_kwargs)
+        self.assertNotIn("temperature", created_kwargs)
+
+    def test_openai_generate_omits_token_limit_by_default(self):
+        created_kwargs = {}
+
+        class FakeOpenAIClient:
+            def __init__(self, api_key):
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self.create)
+                )
+
+            def create(self, **kwargs):
+                created_kwargs.update(kwargs)
+                message = types.SimpleNamespace(content="ok")
+                choice = types.SimpleNamespace(message=message)
+                return types.SimpleNamespace(choices=[choice])
+
+        fake_openai = types.SimpleNamespace(
+            OpenAI=FakeOpenAIClient,
+            OpenAIError=Exception,
+        )
+
+        with patch.dict(sys.modules, {"openai": fake_openai}):
+            response = generate_openai_text(
+                "gpt-5.4-mini",
+                "sk-test",
+                [AIMessage(role="user", content="Build a report.")],
+                "System prompt",
+                None,
+            )
+
+        self.assertEqual(response.content, "ok")
+        self.assertNotIn("max_completion_tokens", created_kwargs)
+        self.assertNotIn("max_tokens", created_kwargs)
+        self.assertNotIn("temperature", created_kwargs)
+
+    def test_openai_stream_uses_modern_completion_token_parameter(self):
+        created_kwargs = {}
+
+        class FakeOpenAIClient:
+            def __init__(self, api_key):
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self.create)
+                )
+
+            def create(self, **kwargs):
+                created_kwargs.update(kwargs)
+                delta = types.SimpleNamespace(content="streamed")
+                choice = types.SimpleNamespace(delta=delta)
+                return [types.SimpleNamespace(choices=[choice])]
+
+        fake_openai = types.SimpleNamespace(
+            OpenAI=FakeOpenAIClient,
+            OpenAIError=Exception,
+        )
+
+        with patch.dict(sys.modules, {"openai": fake_openai}):
+            chunks = list(
+                stream_openai_text(
+                    "gpt-5.4-mini",
+                    "sk-test",
+                    [AIMessage(role="user", content="Build a report.")],
+                    "System prompt",
+                    1234,
+                )
+            )
+
+        self.assertEqual(chunks, ["streamed"])
+        self.assertEqual(created_kwargs["max_completion_tokens"], 1234)
+        self.assertTrue(created_kwargs["stream"])
+        self.assertNotIn("max_tokens", created_kwargs)
+        self.assertNotIn("temperature", created_kwargs)
+
+    def test_openai_stream_omits_token_limit_by_default(self):
+        created_kwargs = {}
+
+        class FakeOpenAIClient:
+            def __init__(self, api_key):
+                self.chat = types.SimpleNamespace(
+                    completions=types.SimpleNamespace(create=self.create)
+                )
+
+            def create(self, **kwargs):
+                created_kwargs.update(kwargs)
+                delta = types.SimpleNamespace(content="streamed")
+                choice = types.SimpleNamespace(delta=delta)
+                return [types.SimpleNamespace(choices=[choice])]
+
+        fake_openai = types.SimpleNamespace(
+            OpenAI=FakeOpenAIClient,
+            OpenAIError=Exception,
+        )
+
+        with patch.dict(sys.modules, {"openai": fake_openai}):
+            chunks = list(
+                stream_openai_text(
+                    "gpt-5.4-mini",
+                    "sk-test",
+                    [AIMessage(role="user", content="Build a report.")],
+                    "System prompt",
+                    None,
+                )
+            )
+
+        self.assertEqual(chunks, ["streamed"])
+        self.assertTrue(created_kwargs["stream"])
+        self.assertNotIn("max_completion_tokens", created_kwargs)
+        self.assertNotIn("max_tokens", created_kwargs)
+        self.assertNotIn("temperature", created_kwargs)
 
 
 class UserModelTests(TestCase):
@@ -393,7 +567,12 @@ class DatabaseConnectionSettingsTests(TestCase):
             {
                 "name": "Sales Warehouse",
                 "provider": DatabaseConnection.Provider.POSTGRES,
-                "connection_string": raw_connection_string,
+                "db_host": "db.example.com",
+                "db_port": "5432",
+                "db_name": "sales",
+                "db_username": "readonly",
+                "db_password": "secret-password",
+                "postgres_sslmode": "",
                 "enabled": "on",
             },
         )
@@ -411,6 +590,54 @@ class DatabaseConnectionSettingsTests(TestCase):
         )
         self.assertIn("***", database_connection.connection_string_preview)
         self.assertNotIn("secret-password", database_connection.connection_string_preview)
+
+    def test_company_admin_can_add_custom_database_connection(self):
+        admin = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=admin,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(admin)
+
+        raw_connection_string = "sqlite:///:memory:"
+        response = self.client.post(
+            reverse("core:settings_database_connection_add"),
+            {
+                "name": "Custom SQLite",
+                "provider": DatabaseConnection.Provider.CUSTOM,
+                "connection_string": raw_connection_string,
+                "enabled": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        database_connection = DatabaseConnection.objects.get(name="Custom SQLite")
+        self.assertEqual(database_connection.provider, DatabaseConnection.Provider.CUSTOM)
+        self.assertEqual(
+            database_connection.get_connection_string(),
+            raw_connection_string,
+        )
+
+    def test_database_connection_add_page_renders_guided_provider_fields(self):
+        admin = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=admin,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse("core:settings_database_connection_add"))
+
+        self.assertContains(response, 'data-provider-fields="postgres"')
+        self.assertContains(response, 'data-provider-fields="snowflake"')
+        self.assertContains(response, 'data-provider-fields="custom"')
+        self.assertContains(response, 'id="id_db_username"')
+        self.assertContains(response, 'id="id_snowflake_username"')
+        self.assertNotContains(response, "SQLAlchemy connection string")
 
     def test_database_connection_pages_never_show_raw_connection_string(self):
         admin = create_user("admin@example.com")
@@ -490,7 +717,7 @@ class DatabaseConnectionSettingsTests(TestCase):
             {
                 "name": "Sales Warehouse Updated",
                 "provider": DatabaseConnection.Provider.SQLITE,
-                "connection_string": "sqlite:///updated.sqlite3",
+                "sqlite_path": "updated.sqlite3",
             },
         )
 
@@ -567,7 +794,7 @@ class DatabaseConnectionSettingsTests(TestCase):
         form = DatabaseConnectionCreateForm(
             data={
                 "name": "Bad URL",
-                "provider": DatabaseConnection.Provider.OTHER,
+                "provider": DatabaseConnection.Provider.CUSTOM,
                 "connection_string": "not a real sqlalchemy url",
                 "enabled": "on",
             }
@@ -589,6 +816,1090 @@ class DatabaseConnectionSettingsTests(TestCase):
 
         self.assertNotIn("secret-password", redacted)
         self.assertIn("readonly:***", redacted)
+
+
+class QueryExecutionServiceTests(TestCase):
+    def setUp(self):
+        self.user = create_user("creator@example.com")
+        self.organization = Organization.objects.create(
+            name="Internal Test Org",
+            max_rows=10,
+            max_raw_bytes=10000,
+        )
+        Membership.objects.create(
+            organization=self.organization,
+            user=self.user,
+            role=Membership.Role.CREATOR,
+        )
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.sqlite_path = Path(self.temp_dir.name) / "query_service.sqlite3"
+        with sqlite3.connect(self.sqlite_path) as conn:
+            conn.execute(
+                "create table deals (id integer primary key, name text, amount numeric, booked_at text)"
+            )
+            conn.executemany(
+                "insert into deals (name, amount, booked_at) values (?, ?, ?)",
+                [
+                    ("Expansion", 12500.50, "2026-01-15"),
+                    ("Platform", 87500, "2026-02-20"),
+                    ("Analytics", 42000, "2026-03-05"),
+                ],
+            )
+        self.database_connection = DatabaseConnection(
+            organization=self.organization,
+            name="SQLite Query Test",
+            provider=DatabaseConnection.Provider.SQLITE,
+        )
+        sqlite_url = f"sqlite:///{self.sqlite_path.as_posix()}"
+        self.database_connection.set_connection_string(sqlite_url, sqlite_url)
+        self.database_connection.save()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_execute_query_returns_json_safe_rows_and_logs_success(self):
+        result = execute_query(
+            self.database_connection,
+            "select id, name, amount, booked_at from deals order by id",
+            user=self.user,
+        )
+
+        self.assertEqual(result.columns, ["id", "name", "amount", "booked_at"])
+        self.assertEqual(result.row_count, 3)
+        self.assertEqual(result.rows[0]["name"], "Expansion")
+        self.assertGreater(result.raw_bytes, 0)
+        log = QueryExecutionLog.objects.get()
+        self.assertTrue(log.succeeded)
+        self.assertEqual(log.row_count, 3)
+        self.assertEqual(log.database_connection, self.database_connection)
+        self.assertEqual(log.user, self.user)
+
+    def test_execute_query_blocks_disabled_connection_and_logs_failure(self):
+        self.database_connection.enabled = False
+        self.database_connection.save(update_fields=["enabled"])
+
+        with self.assertRaises(QueryPolicyError):
+            execute_query(self.database_connection, "select * from deals", user=self.user)
+
+        log = QueryExecutionLog.objects.get()
+        self.assertFalse(log.succeeded)
+        self.assertIn("disabled", log.error_message)
+
+    def test_execute_query_blocks_write_sql(self):
+        with self.assertRaises(QueryPolicyError):
+            execute_query(
+                self.database_connection,
+                "delete from deals where id = 1",
+                user=self.user,
+            )
+
+        self.assertFalse(QueryExecutionLog.objects.get().succeeded)
+
+    def test_execute_query_blocks_write_keyword_in_cte(self):
+        with self.assertRaises(QueryPolicyError):
+            execute_query(
+                self.database_connection,
+                "with deleted as (delete from deals returning id) select * from deleted",
+                user=self.user,
+            )
+
+        self.assertIn(
+            "Write and schema-changing",
+            QueryExecutionLog.objects.get().error_message,
+        )
+
+    def test_execute_query_enforces_max_rows(self):
+        self.organization.max_rows = 2
+        self.organization.save(update_fields=["max_rows"])
+
+        with self.assertRaises(QueryPolicyError):
+            execute_query(
+                self.database_connection,
+                "select id, name from deals order by id",
+                user=self.user,
+            )
+
+        log = QueryExecutionLog.objects.get()
+        self.assertFalse(log.succeeded)
+        self.assertIn("more than the allowed 2 rows", log.error_message)
+
+    def test_execute_query_enforces_raw_byte_limit(self):
+        self.organization.max_raw_bytes = 20
+        self.organization.save(update_fields=["max_raw_bytes"])
+
+        with self.assertRaises(QueryPolicyError):
+            execute_query(
+                self.database_connection,
+                "select id, name from deals order by id",
+                user=self.user,
+            )
+
+        log = QueryExecutionLog.objects.get()
+        self.assertFalse(log.succeeded)
+        self.assertIn("above the allowed 20 bytes", log.error_message)
+
+    def test_execute_query_allows_leading_sql_comment(self):
+        result = execute_query(
+            self.database_connection,
+            "-- report query\nselect count(*) as deal_count from deals",
+            user=self.user,
+        )
+
+        self.assertEqual(result.rows, [{"deal_count": 3}])
+
+
+class ReportBuilderTests(TestCase):
+    def setUp(self):
+        self.creator = create_user("creator@example.com")
+        self.admin = create_user("admin@example.com")
+        self.organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=self.organization,
+            user=self.creator,
+            role=Membership.Role.CREATOR,
+        )
+        Membership.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            role=Membership.Role.ADMIN,
+        )
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.sqlite_path = Path(self.temp_dir.name) / "reports.sqlite3"
+        with sqlite3.connect(self.sqlite_path) as conn:
+            conn.execute("create table pipeline (stage text, amount numeric)")
+            conn.executemany(
+                "insert into pipeline (stage, amount) values (?, ?)",
+                [("Qualified", 1000), ("Proposal", 2500)],
+            )
+        self.database_connection = DatabaseConnection(
+            organization=self.organization,
+            name="Demo SQLite",
+            provider=DatabaseConnection.Provider.SQLITE,
+        )
+        sqlite_url = f"sqlite:///{self.sqlite_path.as_posix()}"
+        self.database_connection.set_connection_string(sqlite_url, sqlite_url)
+        self.database_connection.save()
+        self.provider_key = AIProviderKey(
+            organization=self.organization,
+            name="OpenAI Test",
+            provider=AIProviderKey.Provider.OPENAI,
+            model_name="gpt-5.4-mini",
+        )
+        self.provider_key.set_api_key("sk-test-secret-value")
+        self.provider_key.save()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def create_report(self, owner=None):
+        return Report.objects.create(
+            organization=self.organization,
+            owner=owner or self.creator,
+            database_connection=self.database_connection,
+            ai_provider_key=self.provider_key,
+            title="Pipeline Report",
+            primary_sql="select stage, amount from pipeline order by amount",
+            html="<div id='report'>Pipeline</div>",
+        )
+
+    def test_builder_home_lists_owned_drafts(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:builder_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Builder")
+        self.assertContains(response, report.title)
+        self.assertContains(response, reverse("core:report_builder", args=[report.id]))
+        self.assertContains(response, reverse("core:report_draft_delete", args=[report.id]))
+
+    def test_builder_home_new_draft_popup_offers_ai_and_import_paths(self):
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:builder_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="new-draft-dialog"')
+        self.assertContains(response, "Build with AI")
+        self.assertContains(response, "Upload existing HTML + SQL")
+        self.assertContains(response, reverse("core:builder_new"))
+        self.assertContains(response, reverse("core:builder_import"))
+        self.assertContains(response, 'id="id_primary_sql"')
+        self.assertContains(response, 'id="id_html"')
+
+    def test_builder_home_does_not_show_published_reports(self):
+        draft = self.create_report()
+        published = self.create_report()
+        published.title = "Published Pipeline"
+        published.status = Report.Status.PUBLISHED
+        published.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:builder_home"))
+
+        self.assertContains(response, draft.title)
+        self.assertNotContains(response, published.title)
+
+    def test_builder_new_creates_fresh_draft(self):
+        existing = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:builder_new"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Report.objects.filter(owner=self.creator).count(), 2)
+        new_report = Report.objects.exclude(id=existing.id).get()
+        self.assertEqual(
+            response.headers["Location"],
+            reverse("core:report_builder", args=[new_report.id]),
+        )
+        self.assertEqual(new_report.title, "Draft report")
+
+    def test_builder_import_creates_draft_and_hot_starts_ai_adaptation(self):
+        self.client.force_login(self.creator)
+        uploaded_sql = "select stage, amount from pipeline"
+        uploaded_html = "<h1>Old Pipeline</h1><script>console.log('old')</script>"
+
+        with patch("core.views.generate_report_chat_response") as chat_response:
+            chat_response.return_value = (
+                "I adapted the imported report.",
+                {
+                    "title": "Imported Pipeline",
+                    "database_connection_id": self.database_connection.id,
+                    "primary_sql": uploaded_sql,
+                    "html": "<h1>Imported Pipeline</h1>",
+                },
+            )
+            response = self.client.post(
+                reverse("core:builder_import"),
+                {
+                    "primary_sql": uploaded_sql,
+                    "html": uploaded_html,
+                    "instructions": "Keep the headline.",
+                },
+            )
+
+        report = Report.objects.get(title="Imported Pipeline")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:report_builder", args=[report.id]))
+        self.assertEqual(report.owner, self.creator)
+        self.assertEqual(report.primary_sql, uploaded_sql)
+        self.assertIn("Imported Pipeline", report.html)
+        user_message = report.chat_messages.get(role=ReportChatMessage.Role.USER)
+        self.assertIn("Existing SQL:", user_message.content)
+        self.assertIn(uploaded_sql, user_message.content)
+        self.assertIn(uploaded_html, user_message.content)
+        self.assertIn("Keep the headline.", user_message.content)
+        self.assertTrue(
+            report.chat_messages.filter(
+                role=ReportChatMessage.Role.ASSISTANT,
+                content="I adapted the imported report.",
+            ).exists()
+        )
+
+    def test_builder_import_requires_sql_and_html(self):
+        self.client.force_login(self.creator)
+
+        response = self.client.post(
+            reverse("core:builder_import"),
+            {
+                "primary_sql": "",
+                "html": "<h1>Missing SQL</h1>",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:builder_home"))
+        self.assertFalse(Report.objects.filter(title="Imported report draft").exists())
+
+    def test_reports_list_only_shows_published_reports(self):
+        draft = self.create_report()
+        published = self.create_report()
+        published.title = "Published Pipeline"
+        published.status = Report.Status.PUBLISHED
+        published.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:reports_placeholder"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, published.title)
+        self.assertContains(response, reverse("core:report_preview", args=[published.id]))
+        self.assertNotContains(response, draft.title)
+        self.assertNotContains(response, reverse("core:report_builder", args=[draft.id]))
+
+    def test_reports_list_uses_share_popup_instead_of_share_page_link(self):
+        published = self.create_report()
+        published.status = Report.Status.PUBLISHED
+        published.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:reports_placeholder"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="share-dialog"')
+        self.assertContains(response, "data-share-open")
+        self.assertContains(response, reverse("core:report_share_options", args=[published.id]))
+        self.assertContains(response, "Search by email")
+        self.assertContains(response, "selectedUsers")
+        self.assertContains(response, 'id="share-dropdown"')
+        self.assertContains(response, "share-option")
+
+    def test_reports_list_shows_org_wide_published_reports_to_org_members(self):
+        viewer = create_user("viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        published = self.create_report()
+        published.status = Report.Status.PUBLISHED
+        published.sharing_scope = Report.SharingScope.ORGANIZATION
+        published.save()
+        self.client.force_login(viewer)
+
+        response = self.client.get(reverse("core:reports_placeholder"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, published.title)
+        self.assertContains(response, reverse("core:report_preview", args=[published.id]))
+        self.assertNotContains(response, reverse("core:report_builder", args=[published.id]))
+
+    def test_reports_list_shows_explicitly_shared_report_to_user(self):
+        viewer = create_user("viewer@example.com")
+        other_viewer = create_user("other-viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        Membership.objects.create(
+            organization=self.organization,
+            user=other_viewer,
+            role=Membership.Role.VIEWER,
+        )
+        published = self.create_report()
+        published.status = Report.Status.PUBLISHED
+        published.save()
+        published.shared_with.add(viewer)
+
+        self.client.force_login(viewer)
+        response = self.client.get(reverse("core:reports_placeholder"))
+
+        self.assertContains(response, published.title)
+
+        self.client.force_login(other_viewer)
+        response = self.client.get(reverse("core:reports_placeholder"))
+
+        self.assertNotContains(response, published.title)
+
+    def test_shared_viewer_can_preview_but_not_edit_published_report(self):
+        viewer = create_user("viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        published = self.create_report()
+        published.status = Report.Status.PUBLISHED
+        published.save()
+        published.shared_with.add(viewer)
+        self.client.force_login(viewer)
+
+        preview_response = self.client.get(reverse("core:report_preview", args=[published.id]))
+        builder_response = self.client.get(reverse("core:report_builder", args=[published.id]))
+
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertEqual(builder_response.status_code, 403)
+
+    def test_builder_shows_publish_button_for_draft(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("core:report_publish", args=[report.id]))
+        self.assertContains(response, "Publish")
+
+    def test_creator_can_publish_owned_draft(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.post(reverse("core:report_publish", args=[report.id]))
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
+        self.assertEqual(report.status, Report.Status.PUBLISHED)
+
+        reports_response = self.client.get(reverse("core:reports_placeholder"))
+        self.assertContains(reports_response, report.title)
+        self.assertContains(reports_response, reverse("core:report_preview", args=[report.id]))
+
+    def test_owner_can_open_published_report_in_builder_for_edits(self):
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, report.title)
+
+    def test_creator_cannot_publish_someone_elses_draft(self):
+        other_user = create_user("other@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=other_user,
+            role=Membership.Role.CREATOR,
+        )
+        report = self.create_report(owner=other_user)
+        self.client.force_login(self.creator)
+
+        response = self.client.post(reverse("core:report_publish", args=[report.id]))
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(report.status, Report.Status.DRAFT)
+
+    def test_owner_can_update_published_report_sharing(self):
+        viewer = create_user("viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.post(
+            reverse("core:report_share", args=[report.id]),
+            {
+                "sharing_scope": Report.SharingScope.PRIVATE,
+                "shared_with": [viewer.id],
+            },
+        )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
+        self.assertEqual(report.sharing_scope, Report.SharingScope.PRIVATE)
+        self.assertIn(viewer, report.shared_with.all())
+
+    def test_owner_can_search_org_users_for_report_sharing(self):
+        viewer = create_user("avery.viewer@example.com")
+        other_viewer = create_user("other@example.com")
+        outside_user = create_user("avery.outside@example.com")
+        outside_org = Organization.objects.create(name="Outside Org")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        Membership.objects.create(
+            organization=self.organization,
+            user=other_viewer,
+            role=Membership.Role.VIEWER,
+        )
+        Membership.objects.create(
+            organization=outside_org,
+            user=outside_user,
+            role=Membership.Role.VIEWER,
+        )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        report.shared_with.add(other_viewer)
+        self.client.force_login(self.creator)
+
+        response = self.client.get(
+            reverse("core:report_share_options", args=[report.id]),
+            {"q": "avery"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        result_emails = {user["email"] for user in payload["results"]}
+        shared_emails = {user["email"] for user in payload["shared_users"]}
+        self.assertIn("avery.viewer@example.com", result_emails)
+        self.assertNotIn("avery.outside@example.com", result_emails)
+        self.assertIn("other@example.com", shared_emails)
+
+    def test_share_options_without_query_returns_first_org_users(self):
+        selected = create_user("selected@example.com")
+        unselected = create_user("unselected@example.com")
+        outside_user = create_user("aaa-outside@example.com")
+        outside_org = Organization.objects.create(name="Outside Org")
+        Membership.objects.create(
+            organization=self.organization,
+            user=selected,
+            role=Membership.Role.VIEWER,
+        )
+        Membership.objects.create(
+            organization=self.organization,
+            user=unselected,
+            role=Membership.Role.VIEWER,
+        )
+        Membership.objects.create(
+            organization=outside_org,
+            user=outside_user,
+            role=Membership.Role.VIEWER,
+        )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        report.shared_with.add(selected)
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_share_options", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        result_emails = {user["email"] for user in response.json()["results"]}
+        self.assertIn("selected@example.com", result_emails)
+        self.assertIn("unselected@example.com", result_emails)
+        self.assertNotIn("aaa-outside@example.com", result_emails)
+
+    def test_share_options_limits_default_dropdown(self):
+        for index in range(25):
+            user = create_user(f"user{index:02d}@example.com")
+            Membership.objects.create(
+                organization=self.organization,
+                user=user,
+                role=Membership.Role.VIEWER,
+            )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_share_options", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 20)
+
+    def test_non_owner_cannot_share_published_report(self):
+        viewer = create_user("viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.sharing_scope = Report.SharingScope.ORGANIZATION
+        report.save()
+        self.client.force_login(viewer)
+
+        response = self.client.get(reverse("core:report_share", args=[report.id]))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_owner_can_delete_published_report(self):
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.post(reverse("core:report_delete", args=[report.id]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
+        self.assertFalse(Report.objects.filter(id=report.id).exists())
+
+    def test_non_owner_cannot_delete_shared_published_report(self):
+        viewer = create_user("viewer@example.com")
+        Membership.objects.create(
+            organization=self.organization,
+            user=viewer,
+            role=Membership.Role.VIEWER,
+        )
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        report.shared_with.add(viewer)
+        self.client.force_login(viewer)
+
+        response = self.client.post(reverse("core:report_delete", args=[report.id]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Report.objects.filter(id=report.id).exists())
+
+    def test_creator_can_delete_owned_draft(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.post(reverse("core:report_draft_delete", args=[report.id]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:builder_home"))
+        self.assertFalse(Report.objects.filter(id=report.id).exists())
+
+    def test_creator_cannot_delete_published_report_from_draft_delete(self):
+        report = self.create_report()
+        report.status = Report.Status.PUBLISHED
+        report.save()
+        self.client.force_login(self.creator)
+
+        response = self.client.post(reverse("core:report_draft_delete", args=[report.id]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Report.objects.filter(id=report.id).exists())
+
+    def test_report_dataset_endpoint_runs_primary_sql(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["row_count"], 2)
+        self.assertEqual(payload["rows"][0]["stage"], "Qualified")
+
+    def test_report_dataset_endpoint_caches_primary_sql_result(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        first_response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        second_response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertFalse(first_response.json()["cache_hit"])
+        self.assertTrue(second_response.json()["cache_hit"])
+        self.assertEqual(ReportDatasetCache.objects.filter(report=report).count(), 1)
+        cache = ReportDatasetCache.objects.get(report=report)
+        self.assertGreater(cache.compressed_bytes, 0)
+        self.assertGreater(cache.raw_bytes, 0)
+        self.assertEqual(cache.row_count, 2)
+        self.assertTrue(
+            ReportDatasetCacheLock.objects.filter(cache_key=cache.cache_key).exists()
+        )
+        cache_statuses = list(
+            QueryExecutionLog.objects.order_by("created_at").values_list(
+                "cache_status",
+                flat=True,
+            )
+        )
+        self.assertEqual(
+            cache_statuses,
+            [
+                QueryExecutionLog.CacheStatus.MISS,
+                QueryExecutionLog.CacheStatus.HIT,
+            ],
+        )
+
+    def test_report_dataset_cache_key_changes_when_sql_changes(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        report.primary_sql = "select stage from pipeline order by stage"
+        report.save(update_fields=["primary_sql", "updated_at"])
+        response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["cache_hit"])
+        self.assertEqual(ReportDatasetCache.objects.filter(report=report).count(), 2)
+
+    def test_report_dataset_expired_cache_reruns_query(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+        self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        cache = ReportDatasetCache.objects.get(report=report)
+        cache.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        cache.save(update_fields=["expires_at"])
+
+        response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["cache_hit"])
+        self.assertEqual(
+            QueryExecutionLog.objects.filter(
+                cache_status=QueryExecutionLog.CacheStatus.MISS,
+            ).count(),
+            2,
+        )
+
+    def test_cleanup_report_cache_command_deletes_expired_caches(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+        self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        cache = ReportDatasetCache.objects.get(report=report)
+        cache.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        cache.save(update_fields=["expires_at"])
+
+        call_command("cleanup_report_cache", verbosity=0)
+
+        self.assertFalse(ReportDatasetCache.objects.filter(id=cache.id).exists())
+        self.assertFalse(ReportDatasetCacheLock.objects.filter(cache_key=cache.cache_key).exists())
+
+    def test_report_dataset_cache_error_still_logs_query_attempt(self):
+        report = self.create_report()
+        self.organization.max_compressed_bytes = 1
+        self.organization.save(update_fields=["max_compressed_bytes"])
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(ReportDatasetCache.objects.filter(report=report).exists())
+        log = QueryExecutionLog.objects.get()
+        self.assertEqual(log.cache_status, QueryExecutionLog.CacheStatus.MISS)
+        self.assertTrue(log.succeeded)
+        self.assertEqual(log.row_count, 2)
+
+    def test_report_dataset_compressed_cache_limit_fails_safely(self):
+        report = self.create_report()
+        self.organization.max_compressed_bytes = 1
+        self.organization.save(update_fields=["max_compressed_bytes"])
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("compressed bytes", response.json()["error"])
+        self.assertFalse(ReportDatasetCache.objects.filter(report=report).exists())
+
+    def test_report_preview_injects_runtime_sdk(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_preview", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "window.sr")
+        self.assertEqual(response.headers["X-Frame-Options"], "SAMEORIGIN")
+        self.assertContains(response, reverse("core:report_primary_dataset", args=[report.id]))
+        self.assertContains(response, "return payload.rows || []")
+        self.assertContains(response, "datasetMeta")
+        self.assertContains(response, "Pipeline")
+
+    def test_report_chat_updates_report_with_ai_draft(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        with patch("core.views.generate_report_chat_response") as chat_response:
+            chat_response.return_value = (
+                "Updated the report.",
+                {
+                    "title": "AI Pipeline",
+                    "database_connection_id": self.database_connection.id,
+                    "primary_sql": "select stage, sum(amount) as amount from pipeline group by stage",
+                    "html": "<h1>AI Pipeline</h1>",
+                },
+            )
+            response = self.client.post(
+                reverse("core:report_chat_send", args=[report.id]),
+                {"message": "Make this a pipeline summary."},
+                HTTP_HX_REQUEST="true",
+            )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(report.title, "AI Pipeline")
+        self.assertEqual(report.database_connection, self.database_connection)
+        self.assertIn("group by stage", report.primary_sql)
+        self.assertIn("AI Pipeline", report.html)
+        assistant_message = report.chat_messages.get(
+            role=ReportChatMessage.Role.ASSISTANT,
+            content="Updated the report.",
+        )
+        self.assertIn("group by stage", assistant_message.artifact["primary_sql"])
+
+    def test_preview_runtime_reports_browser_and_dataset_errors(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_preview", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "window.addEventListener(\"error\"")
+        self.assertContains(response, "window.addEventListener(\"unhandledrejection\"")
+        self.assertContains(response, reverse("core:report_preview_error", args=[report.id]))
+        self.assertContains(response, "safe_reports.preview_error")
+        self.assertContains(response, "await reportError(error, \"sr.dataset(\" + name + \")\")")
+
+    def test_preview_error_posts_to_chat_and_triggers_repair(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        with patch("core.views.generate_report_chat_response") as chat_response:
+            chat_response.return_value = (
+                "I fixed the preview error.",
+                {
+                    "title": "Fixed Pipeline",
+                    "database_connection_id": self.database_connection.id,
+                    "primary_sql": "select stage from pipeline",
+                    "html": "<script>const data = await sr.dataset('primary');</script>",
+                },
+            )
+            response = self.client.post(
+                reverse("core:report_preview_error", args=[report.id]),
+                data=(
+                    '{"context":"window.error",'
+                    '"message":"Cannot read properties of undefined",'
+                    '"stack":"TypeError: Cannot read properties of undefined"}'
+                ),
+                content_type="application/json",
+            )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["repaired"])
+        self.assertEqual(report.title, "Fixed Pipeline")
+        self.assertTrue(
+            report.chat_messages.filter(
+                role=ReportChatMessage.Role.ASSISTANT,
+                content__contains="Preview error 1/4",
+                artifact__preview_error=True,
+            ).exists()
+        )
+        self.assertTrue(
+            report.chat_messages.filter(
+                role=ReportChatMessage.Role.ASSISTANT,
+                content="I fixed the preview error.",
+            ).exists()
+        )
+        self.assertIn("Cannot read properties", chat_response.call_args.args[1])
+
+    def test_preview_error_gives_up_after_four_browser_errors(self):
+        report = self.create_report()
+        for index in range(3):
+            ReportChatMessage.objects.create(
+                report=report,
+                role=ReportChatMessage.Role.ASSISTANT,
+                content=f"Preview error {index + 1}/4: old error",
+                artifact={"preview_error": True},
+            )
+        self.client.force_login(self.creator)
+
+        with patch("core.views.generate_report_chat_response") as chat_response:
+            response = self.client.post(
+                reverse("core:report_preview_error", args=[report.id]),
+                data='{"message":"Still broken","context":"window.error"}',
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["repaired"])
+        self.assertTrue(payload["gave_up"])
+        self.assertEqual(chat_response.call_count, 0)
+        self.assertTrue(
+            report.chat_messages.filter(
+                content__contains="failed four times in a row",
+                artifact__preview_error_give_up=True,
+            ).exists()
+        )
+
+    def test_report_builder_sends_chat_on_enter_and_keeps_shift_enter_for_newlines(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'event.key !== "Enter" || event.shiftKey')
+        self.assertContains(response, "form.requestSubmit()")
+
+    def test_report_builder_shows_thinking_indicator_for_streaming_reply(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "thinking-indicator")
+        self.assertContains(response, "Assistant is thinking")
+        self.assertContains(response, "removeThinking(assistant)")
+
+    def test_report_builder_renders_ai_model_selector(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("core:report_model_update", args=[report.id]))
+        self.assertContains(response, 'id="id_ai_provider_key"')
+        self.assertContains(response, 'id="id_ai_model_name"')
+        self.assertContains(response, "provider-model-choices")
+        self.assertContains(response, "Use this model")
+
+    def test_creator_can_update_report_ai_model(self):
+        report = self.create_report()
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.4-mini",
+            display_name="GPT-5.4 mini",
+            allowed=True,
+            available=True,
+        )
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            allowed=True,
+            available=True,
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.post(
+            reverse("core:report_model_update", args=[report.id]),
+            {
+                "ai_provider_key": self.provider_key.id,
+                "ai_model_name": "gpt-5.5",
+            },
+        )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(report.ai_provider_key, self.provider_key)
+        self.assertEqual(report.ai_model_name, "gpt-5.5")
+
+    def test_creator_cannot_update_report_to_disallowed_model(self):
+        report = self.create_report()
+        original_model_name = report.ai_model_name
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.4-mini",
+            display_name="GPT-5.4 mini",
+            allowed=True,
+            available=True,
+        )
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            allowed=False,
+            available=True,
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.post(
+            reverse("core:report_model_update", args=[report.id]),
+            {
+                "ai_provider_key": self.provider_key.id,
+                "ai_model_name": "gpt-5.5",
+            },
+        )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(report.ai_model_name, original_model_name)
+
+    def test_report_chat_history_renders_raw_html_artifact(self):
+        report = self.create_report()
+        ReportChatMessage.objects.create(
+            report=report,
+            role=ReportChatMessage.Role.ASSISTANT,
+            content="Updated the report.",
+            artifact={
+                "primary_sql": "select stage from pipeline",
+                "html": "<h1>Pipeline</h1>",
+            },
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Report changes")
+        self.assertContains(response, "SQL")
+        self.assertContains(response, "HTML")
+        self.assertContains(response, "&lt;h1&gt;Pipeline&lt;/h1&gt;")
+
+    def test_report_chat_can_reply_without_updating_report(self):
+        report = self.create_report()
+        original_sql = report.primary_sql
+        self.client.force_login(self.creator)
+
+        with patch("core.views.generate_report_chat_response") as chat_response:
+            chat_response.return_value = ("Yes, I can help with that.", {})
+            response = self.client.post(
+                reverse("core:report_chat_send", args=[report.id]),
+                {"message": "Can you explain what this report does?"},
+                HTTP_HX_REQUEST="true",
+            )
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(report.primary_sql, original_sql)
+        self.assertTrue(
+            report.chat_messages.filter(
+                role=ReportChatMessage.Role.ASSISTANT,
+                content="Yes, I can help with that.",
+                artifact={},
+            ).exists()
+        )
+
+    def test_report_chat_does_not_set_output_token_cap(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        with patch("core.report_generation.generate_text") as generate_text:
+            generate_text.return_value.content = "No report change."
+            response = self.client.post(
+                reverse("core:report_chat_send", args=[report.id]),
+                {"message": "Make a very rich HTML report."},
+                HTTP_HX_REQUEST="true",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("max_tokens", generate_text.call_args.kwargs)
+
+    def test_report_chat_stream_applies_artifact(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        def fake_stream(*_args, **_kwargs):
+            yield "delta", "Done"
+            yield "done", {
+                "content": "Done",
+                "artifact": {
+                    "title": "Streamed Pipeline",
+                    "database_connection_id": self.database_connection.id,
+                    "primary_sql": "select stage from pipeline",
+                    "html": "<h1>Streamed Pipeline</h1>",
+                },
+                "report_updated": True,
+                "title": "Streamed Pipeline",
+            }
+
+        with patch("core.views.stream_report_chat_response", side_effect=fake_stream):
+            response = self.client.post(
+                reverse("core:report_chat_stream", args=[report.id]),
+                {"message": "Build it"},
+            )
+            body = b"".join(response.streaming_content).decode()
+
+        report.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("event: delta", body)
+        self.assertIn("event: done", body)
+        self.assertEqual(report.title, "Streamed Pipeline")
+        self.assertTrue(
+            report.chat_messages.filter(
+                role=ReportChatMessage.Role.ASSISTANT,
+                artifact__title="Streamed Pipeline",
+            ).exists()
+        )
+
+    def test_company_admin_can_view_creator_report(self):
+        report = self.create_report()
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, report.title)
 
 
 class AIProviderSettingsTests(TestCase):

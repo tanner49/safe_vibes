@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Builder - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <style>
+    .new-draft-dialog {
+      width: min(760px, calc(100vw - 2rem));
+      border: 1px solid var(--sr-border);
+      border-radius: 8px;
+      padding: 0;
+      box-shadow: var(--sr-shadow-md);
+    }
+
+    .new-draft-dialog::backdrop {
+      background: rgba(17, 17, 17, 0.28);
+    }
+  </style>
+
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Builder</h1>
+      <p class="text-secondary mb-0">Draft report conversations for {{ organization.name }}.</p>
+    </div>
+    <button class="btn btn-primary" type="button" data-new-draft-open>New draft</button>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Draft</th>
+              <th>Model</th>
+              <th>Database</th>
+              <th>Updated</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for draft in drafts %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ draft.title }}</div>
+                  {% if draft.last_chat_message %}
+                    <div class="text-secondary small">{{ draft.last_chat_message.content|truncatechars:110 }}</div>
+                  {% else %}
+                    <div class="text-secondary small">No messages yet.</div>
+                  {% endif %}
+                </td>
+                <td>{{ draft.ai_model_name|default:"No AI key" }}</td>
+                <td>{{ draft.database_connection.name|default:"Not selected yet" }}</td>
+                <td>{{ draft.updated_at|date:"M j, Y g:i A" }}</td>
+                <td class="text-end">
+                  <div class="d-inline-flex align-items-center gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:report_builder' draft.id %}">Open</a>
+                    <form method="post" action="{% url 'core:report_draft_delete' draft.id %}" onsubmit="return confirm('Delete this draft? This cannot be undone.');">
+                      {% csrf_token %}
+                      <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="text-secondary">No drafts yet. Start a new report conversation.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="new-draft-dialog" class="new-draft-dialog">
+    <div class="border-bottom p-3 d-flex align-items-start justify-content-between gap-3">
+      <div>
+        <h2 class="h5 mb-1">Start a new draft</h2>
+        <p class="text-secondary mb-0 small">Choose how you want to begin.</p>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-new-draft-close>Close</button>
+    </div>
+
+    <div id="new-draft-choice" class="p-3">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="border rounded-2 p-3 h-100">
+            <h3 class="h6">Build with AI</h3>
+            <p class="text-secondary small">Start with a blank chat draft and tell the assistant what to build.</p>
+            <a class="btn btn-primary w-100" href="{% url 'core:builder_new' %}">Start blank AI draft</a>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="border rounded-2 p-3 h-100">
+            <h3 class="h6">Upload existing HTML + SQL</h3>
+            <p class="text-secondary small">Paste an existing report and let AI adapt it to the runtime.</p>
+            <button class="btn btn-outline-secondary w-100" type="button" data-import-choice>Import existing report</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <form id="new-draft-import" class="p-3 d-none" method="post" action="{% url 'core:builder_import' %}">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ import_form.primary_sql.id_for_label }}">{{ import_form.primary_sql.label }}</label>
+        {{ import_form.primary_sql }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="{{ import_form.html.id_for_label }}">{{ import_form.html.label }}</label>
+        {{ import_form.html }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="{{ import_form.instructions.id_for_label }}">{{ import_form.instructions.label }}</label>
+        {{ import_form.instructions }}
+      </div>
+      <div class="d-flex justify-content-between gap-2">
+        <button class="btn btn-outline-secondary" type="button" data-import-back>Back</button>
+        <button class="btn btn-primary" type="submit">Start imported draft</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (function () {
+      const dialog = document.getElementById("new-draft-dialog");
+      const choice = document.getElementById("new-draft-choice");
+      const importForm = document.getElementById("new-draft-import");
+      if (!dialog || !choice || !importForm) return;
+
+      function showChoice() {
+        choice.classList.remove("d-none");
+        importForm.classList.add("d-none");
+      }
+
+      function showImport() {
+        choice.classList.add("d-none");
+        importForm.classList.remove("d-none");
+      }
+
+      document.querySelectorAll("[data-new-draft-open]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          showChoice();
+          dialog.showModal();
+        });
+      });
+
+      document.querySelectorAll("[data-new-draft-close]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          dialog.close();
+        });
+      });
+
+      document.querySelectorAll("[data-import-choice]").forEach(function (button) {
+        button.addEventListener("click", showImport);
+      });
+
+      document.querySelectorAll("[data-import-back]").forEach(function (button) {
+        button.addEventListener("click", showChoice);
+      });
+    })();
+  </script>
+{% endblock %}

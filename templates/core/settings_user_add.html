@@ -3,14 +3,18 @@
 {% block title %}Add User - {{ app_name }}{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-lg-8">
-      <div class="mb-4">
-        <a href="{% url 'core:settings_home' %}" class="text-decoration-none">&larr; Company settings</a>
-        <h1 class="h3 mt-3 mb-1">Add User</h1>
-        <p class="text-secondary mb-0">
-          Create a local user for {{ organization.name }} and assign their product role.
-        </p>
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Users</div>
+          <h1 class="h3 mb-1">Add User</h1>
+          <p class="text-secondary mb-0">
+            Create a local user for {{ organization.name }} and assign their product role.
+          </p>
+        </div>
       </div>
 
       <section class="card">
@@ -58,7 +62,7 @@
 
             <div class="d-flex gap-2 mt-4">
               <button class="btn btn-primary" type="submit">Add user</button>
-              <a class="btn btn-outline-secondary" href="{% url 'core:settings_home' %}">Cancel</a>
+              <a class="btn btn-outline-secondary" href="{% url 'core:settings_users' %}">Cancel</a>
             </div>
           </form>
         </div>

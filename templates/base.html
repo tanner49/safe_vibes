@@ -7,46 +7,69 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
       :root {
-        --sr-bg: #f7f7f7;
+        --sr-bg: #f6f6f4;
+        --sr-bg-soft: #fbfbfa;
         --sr-panel: #ffffff;
         --sr-text: #111111;
+        --sr-text-soft: #2f2f2f;
         --sr-muted: #626262;
-        --sr-border: #dedede;
-        --sr-border-strong: #b8b8b8;
-        --sr-focus: rgba(17, 17, 17, 0.18);
+        --sr-border: #e4e1dc;
+        --sr-border-strong: #c9c4bd;
+        --sr-focus: rgba(17, 17, 17, 0.14);
+        --sr-shadow-sm: 0 1px 2px rgba(17, 17, 17, 0.04), 0 1px 8px rgba(17, 17, 17, 0.03);
+        --sr-shadow-md: 0 16px 60px rgba(17, 17, 17, 0.10);
+      }
+
+      html {
+        min-height: 100%;
       }
 
       body {
         background:
-          linear-gradient(180deg, #ffffff 0, var(--sr-bg) 280px),
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.95), transparent 34rem),
+          linear-gradient(180deg, #ffffff 0, var(--sr-bg) 24rem),
           var(--sr-bg);
         color: var(--sr-text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+        line-height: 1.45;
       }
 
       .navbar {
-        min-height: 64px;
-        background: rgba(255, 255, 255, 0.92) !important;
-        backdrop-filter: blur(10px);
+        min-height: 72px;
+        background: rgba(251, 251, 250, 0.82) !important;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
       }
 
       .navbar-brand {
         color: var(--sr-text);
         letter-spacing: 0;
+        font-size: 1rem;
       }
 
       .container {
-        max-width: 1120px;
+        max-width: 1180px;
+      }
+
+      main.container {
+        padding-top: 2rem !important;
+        padding-bottom: 4rem !important;
       }
 
       .card {
         border-color: var(--sr-border);
         border-radius: 8px;
-        box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04);
+        box-shadow: var(--sr-shadow-sm);
+        background: rgba(255, 255, 255, 0.86);
       }
 
       .card-body {
-        padding: 1.25rem;
+        padding: 1.35rem;
+      }
+
+      .card .card {
+        box-shadow: none;
       }
 
       .text-secondary,
@@ -57,6 +80,8 @@
       .btn {
         border-radius: 6px;
         font-weight: 500;
+        letter-spacing: 0;
+        transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
       }
 
       .btn-primary {
@@ -66,21 +91,37 @@
         --bs-btn-hover-border-color: #333333;
         --bs-btn-active-bg: #000000;
         --bs-btn-active-border-color: #000000;
+        box-shadow: 0 1px 1px rgba(17, 17, 17, 0.08), 0 8px 18px rgba(17, 17, 17, 0.08);
       }
 
       .btn-outline-primary,
       .btn-outline-secondary {
         --bs-btn-color: #111111;
-        --bs-btn-border-color: var(--sr-border-strong);
+        --bs-btn-bg: rgba(255, 255, 255, 0.72);
+        --bs-btn-border-color: var(--sr-border);
         --bs-btn-hover-bg: #111111;
         --bs-btn-hover-border-color: #111111;
         --bs-btn-hover-color: #ffffff;
       }
 
+      .btn-outline-danger {
+        --bs-btn-border-color: #e1cbc7;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
       .form-control,
       .form-select {
-        border-color: var(--sr-border-strong);
+        border-color: var(--sr-border);
         border-radius: 6px;
+        background-color: rgba(255, 255, 255, 0.94);
+      }
+
+      .form-control:hover,
+      .form-select:hover {
+        border-color: var(--sr-border-strong);
       }
 
       .form-control:focus,
@@ -99,18 +140,44 @@
       .table {
         --bs-table-bg: transparent;
         --bs-table-border-color: var(--sr-border);
+        margin-bottom: 0;
       }
 
       .table thead th {
         color: var(--sr-muted);
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         font-weight: 600;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
+        border-bottom-color: var(--sr-border-strong);
+        padding-top: 0.35rem;
+        padding-bottom: 0.65rem;
+      }
+
+      .table tbody td {
+        padding-top: 0.85rem;
+        padding-bottom: 0.85rem;
+        color: var(--sr-text-soft);
+      }
+
+      .table tbody tr {
+        transition: background-color 0.12s ease;
+      }
+
+      .table tbody tr:hover {
+        background: rgba(17, 17, 17, 0.025);
       }
 
       .alert {
         border-radius: 8px;
+        border-color: var(--sr-border);
+        box-shadow: var(--sr-shadow-sm);
+      }
+
+      .badge {
+        border-radius: 999px;
+        font-weight: 500;
+        padding: 0.38em 0.62em;
       }
 
       h1,
@@ -119,6 +186,167 @@
       h4,
       h5 {
         letter-spacing: 0;
+        color: var(--sr-text);
+      }
+
+      h1.h3 {
+        font-size: clamp(1.45rem, 2vw, 1.8rem);
+        font-weight: 650;
+      }
+
+      h2.h5,
+      h3.h6 {
+        font-weight: 650;
+      }
+
+      dl dt {
+        color: var(--sr-muted);
+        font-weight: 600;
+      }
+
+      dl dd {
+        color: var(--sr-text-soft);
+      }
+
+      dialog {
+        background: #ffffff;
+      }
+
+      pre {
+        background: #fafafa;
+        border-color: var(--sr-border) !important;
+        border-radius: 6px;
+      }
+
+      .app-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem;
+        border: 1px solid var(--sr-border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
+      .app-nav .btn {
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .app-nav .btn:hover {
+        background: #111111;
+        color: #ffffff;
+      }
+
+      .app-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .page-kicker {
+        color: var(--sr-muted);
+        font-size: 0.78rem;
+        font-weight: 650;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .settings-shell {
+        display: grid;
+        grid-template-columns: minmax(190px, 235px) minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: start;
+      }
+
+      .settings-sidebar {
+        position: sticky;
+        top: 5.75rem;
+        border: 1px solid var(--sr-border);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: var(--sr-shadow-sm);
+        padding: 0.8rem;
+      }
+
+      .settings-sidebar-title {
+        padding: 0.35rem 0.45rem 0.65rem;
+        border-bottom: 1px solid var(--sr-border);
+        margin-bottom: 0.45rem;
+      }
+
+      .settings-nav {
+        display: grid;
+        gap: 0.25rem;
+      }
+
+      .settings-nav-link {
+        display: block;
+        border-radius: 6px;
+        color: var(--sr-text-soft);
+        font-size: 0.94rem;
+        font-weight: 500;
+        padding: 0.58rem 0.65rem;
+        text-decoration: none;
+      }
+
+      .settings-nav-link:hover {
+        background: rgba(17, 17, 17, 0.045);
+        color: var(--sr-text);
+      }
+
+      .settings-nav-link.active {
+        background: #111111;
+        color: #ffffff;
+      }
+
+      .settings-content {
+        min-width: 0;
+      }
+
+      .settings-page-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+
+      @media (max-width: 768px) {
+        .navbar {
+          padding-top: 0.75rem;
+          padding-bottom: 0.75rem;
+        }
+
+        .navbar .container,
+        .app-actions {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .app-nav {
+          flex-wrap: wrap;
+          border-radius: 8px;
+        }
+
+        .settings-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .settings-sidebar {
+          position: static;
+        }
+
+        .settings-nav {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .settings-page-header {
+          flex-direction: column;
+        }
       }
     </style>
   </head>
@@ -126,22 +354,27 @@
     <nav class="navbar navbar-expand-lg border-bottom">
       <div class="container">
         <a class="navbar-brand fw-semibold" href="{% url 'core:home' %}">{{ app_name }}</a>
-        <div class="d-flex align-items-center gap-2">
+        <div class="app-actions">
           {% if user.is_authenticated %}
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:dashboard' %}">Dashboard</a>
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:reports_placeholder' %}">Reports</a>
-            {% if is_company_admin %}
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:settings_home' %}">Settings</a>
-            {% endif %}
-            {% if user.is_staff %}
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">Django Admin</a>
-            {% endif %}
+            <div class="app-nav">
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:dashboard' %}">Dashboard</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:builder_home' %}">Builder</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:reports_placeholder' %}">Reports</a>
+              {% if is_company_admin %}
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:settings_home' %}">Settings</a>
+              {% endif %}
+              {% if user.is_staff %}
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">Django Admin</a>
+              {% endif %}
+            </div>
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
               <button class="btn btn-sm btn-primary" type="submit">Log out</button>
             </form>
           {% else %}
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">Django Admin</a>
+            <div class="app-nav">
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">Django Admin</a>
+            </div>
             <a class="btn btn-sm btn-primary" href="{% url 'login' %}">Log in</a>
           {% endif %}
         </div>

@@ -3,14 +3,18 @@
 {% block title %}Add AI Provider - {{ app_name }}{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-lg-8">
-      <div class="mb-4">
-        <a href="{% url 'core:settings_ai_providers' %}" class="text-decoration-none">&larr; AI providers</a>
-        <h1 class="h3 mt-3 mb-1">Add AI Provider Key</h1>
-        <p class="text-secondary mb-0">
-          Add a customer-owned OpenAI, Claude, or Gemini key.
-        </p>
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">AI providers</div>
+          <h1 class="h3 mb-1">Add AI Provider Key</h1>
+          <p class="text-secondary mb-0">
+            Add a customer-owned OpenAI, Claude, or Gemini key.
+          </p>
+        </div>
       </div>
 
       <section class="card">

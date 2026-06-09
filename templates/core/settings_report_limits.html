@@ -3,15 +3,19 @@
 {% block title %}Edit Report Policy - {{ app_name }}{% endblock %}
 
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-lg-8">
-      <div class="mb-4">
-        <a href="{% url 'core:settings_home' %}" class="text-decoration-none">&larr; Company settings</a>
-        <h1 class="h3 mt-3 mb-1">Edit Report Policy</h1>
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Company settings</div>
+          <h1 class="h3 mb-1">Report Policy</h1>
         <p class="text-secondary mb-0">
           These values apply only to {{ organization.name }}. They override the
           app defaults copied in when the organization was created.
         </p>
+        </div>
       </div>
 
       <section class="card">

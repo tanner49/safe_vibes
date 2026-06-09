@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Share {{ report.title }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
+    <div>
+      <a href="{% url 'core:reports_placeholder' %}" class="text-decoration-none">&larr; Reports</a>
+      <h1 class="h3 mt-3 mb-1">Share {{ report.title }}</h1>
+      <p class="text-secondary mb-0">Choose who in {{ organization.name }} can view this published report.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'core:report_preview' report.id %}" target="_blank">Open report</a>
+  </div>
+
+  <section class="card">
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+        <div class="mb-4">
+          <label class="form-label" for="{{ form.sharing_scope.id_for_label }}">{{ form.sharing_scope.label }}</label>
+          {{ form.sharing_scope }}
+          {% if form.sharing_scope.errors %}
+            <div class="text-danger small mt-1">{{ form.sharing_scope.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+
+        <div class="mb-4">
+          <div class="form-label">{{ form.shared_with.label }}</div>
+          <p class="text-secondary small mb-2">Named people can view the report even when it is not shared with the whole organization.</p>
+          <div class="border rounded-2 p-3">
+            {{ form.shared_with }}
+          </div>
+          {% if form.shared_with.errors %}
+            <div class="text-danger small mt-1">{{ form.shared_with.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+          <a class="btn btn-outline-secondary" href="{% url 'core:reports_placeholder' %}">Cancel</a>
+          <button class="btn btn-primary" type="submit">Save sharing</button>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

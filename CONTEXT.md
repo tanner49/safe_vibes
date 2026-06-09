@@ -73,9 +73,11 @@ Users should log into the main app and only see reports, database connections, s
 The app does not need tenant-specific URL paths for the MVP. Routes can be normal application routes such as:
 
 ```text
+/builder/
+/builder/new/
+/builder/{id}/
 /reports/
-/reports/new/
-/reports/{id}/edit/
+/reports/{id}/preview/
 /settings/connections/
 /settings/ai-providers/
 /settings/audit/

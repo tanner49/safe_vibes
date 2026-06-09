@@ -3,95 +3,233 @@
 {% block title %}Database Connection - {{ app_name }}{% endblock %}
 
 {% block content %}
-  <div class="d-flex align-items-start justify-content-between gap-3 mb-4">
-    <div>
-      <a href="{% url 'core:settings_database_connections' %}" class="text-decoration-none">&larr; Database connections</a>
-      <h1 class="h3 mt-3 mb-1">{{ database_connection.name }}</h1>
-      <p class="text-secondary mb-0">
-        Manage this approved data source for report queries.
-      </p>
-    </div>
-  </div>
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
 
-  <section class="card">
-    <div class="card-body">
-      <div class="row g-4">
-        <div class="col-lg-5">
-          <h2 class="h5">Connection</h2>
-          <dl class="row">
-            <dt class="col-sm-5">Provider</dt>
-            <dd class="col-sm-7">{{ database_connection.get_provider_display }}</dd>
-            <dt class="col-sm-5">Stored string</dt>
-            <dd class="col-sm-7"><code>{{ database_connection.connection_string_preview }}</code></dd>
-            <dt class="col-sm-5">Last test</dt>
-            <dd class="col-sm-7">
-              {% if database_connection.last_tested_at %}
-                {{ database_connection.last_test_succeeded|yesno:"Passed,Failed" }} at {{ database_connection.last_tested_at }}
-              {% else %}
-                Not tested
-              {% endif %}
-            </dd>
-          </dl>
-          {% if database_connection.last_test_error %}
-            <div class="alert alert-warning">{{ database_connection.last_test_error }}</div>
-          {% endif %}
-          <form method="post" action="{% url 'core:settings_database_connection_test' database_connection.id %}">
-            {% csrf_token %}
-            <button class="btn btn-outline-primary" type="submit">Test connection</button>
-          </form>
-        </div>
-
-        <div class="col-lg-7">
-          <h2 class="h5">Settings</h2>
-          <form method="post">
-            {% csrf_token %}
-
-            {% if form.non_field_errors %}
-              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
-            {% endif %}
-
-            <div class="mb-3">
-              <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
-              {{ form.name }}
-              <div class="form-text">{{ form.name.help_text }}</div>
-              {{ form.name.errors }}
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="{{ form.provider.id_for_label }}">Provider</label>
-              {{ form.provider }}
-              <div class="form-text">{{ form.provider.help_text }}</div>
-              {{ form.provider.errors }}
-            </div>
-            <div class="mb-3">
-              <label class="form-label" for="{{ form.connection_string.id_for_label }}">Replace connection string</label>
-              {{ form.connection_string }}
-              <div class="form-text">{{ form.connection_string.help_text }}</div>
-              {{ form.connection_string.errors }}
-            </div>
-            <div class="form-check form-switch mb-4">
-              {{ form.enabled }}
-              <label class="form-check-label" for="{{ form.enabled.id_for_label }}">Enabled</label>
-              <div class="form-text">{{ form.enabled.help_text }}</div>
-              {{ form.enabled.errors }}
-            </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-primary" type="submit">Save connection</button>
-              <a class="btn btn-outline-secondary" href="{% url 'core:settings_database_connections' %}">Cancel</a>
-            </div>
-          </form>
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Database connections</div>
+          <h1 class="h3 mb-1">{{ database_connection.name }}</h1>
+          <p class="text-secondary mb-0">
+            Manage this approved data source for report queries.
+          </p>
         </div>
       </div>
 
-      <hr class="my-4">
+      <section class="card">
+        <div class="card-body">
+          <div class="row g-4">
+            <div class="col-lg-5">
+              <h2 class="h5">Connection</h2>
+              <dl class="row">
+                <dt class="col-sm-5">Provider</dt>
+                <dd class="col-sm-7">{{ database_connection.get_provider_display }}</dd>
+                <dt class="col-sm-5">Stored string</dt>
+                <dd class="col-sm-7"><code>{{ database_connection.connection_string_preview }}</code></dd>
+                <dt class="col-sm-5">Last test</dt>
+                <dd class="col-sm-7">
+                  {% if database_connection.last_tested_at %}
+                    {{ database_connection.last_test_succeeded|yesno:"Passed,Failed" }} at {{ database_connection.last_tested_at }}
+                  {% else %}
+                    Not tested
+                  {% endif %}
+                </dd>
+              </dl>
+              {% if database_connection.last_test_error %}
+                <div class="alert alert-warning">{{ database_connection.last_test_error }}</div>
+              {% endif %}
+              <form method="post" action="{% url 'core:settings_database_connection_test' database_connection.id %}">
+                {% csrf_token %}
+                <button class="btn btn-outline-primary" type="submit">Test connection</button>
+              </form>
+            </div>
 
-      <form
-        method="post"
-        action="{% url 'core:settings_database_connection_delete' database_connection.id %}"
-        onsubmit="return confirm('Delete this database connection? Reports using it will stop working.');"
-      >
-        {% csrf_token %}
-        <button class="btn btn-outline-danger" type="submit">Delete connection</button>
-      </form>
+            <div class="col-lg-7">
+              <h2 class="h5">Settings</h2>
+              <form method="post">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                  <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+                {% endif %}
+
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.name.id_for_label }}">Name</label>
+                  {{ form.name }}
+                  <div class="form-text">{{ form.name.help_text }}</div>
+                  {{ form.name.errors }}
+                </div>
+                <div class="mb-3">
+                  <label class="form-label" for="{{ form.provider.id_for_label }}">Provider</label>
+                  {{ form.provider }}
+                  <div class="form-text">{{ form.provider.help_text }}</div>
+                  {{ form.provider.errors }}
+                </div>
+                <p class="text-secondary">
+                  To replace the saved credentials, fill out the connection details for the selected provider. Leave them blank to keep the existing encrypted connection.
+                </p>
+
+                <div data-provider-fields="postgres">
+                  <h3 class="h6">Postgres details</h3>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                      <label class="form-label" for="{{ form.db_host.id_for_label }}">Host</label>
+                      {{ form.db_host }}
+                      {{ form.db_host.errors }}
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label" for="{{ form.db_port.id_for_label }}">Port</label>
+                      {{ form.db_port }}
+                      {{ form.db_port.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.db_name.id_for_label }}">Database</label>
+                      {{ form.db_name }}
+                      {{ form.db_name.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.postgres_sslmode.id_for_label }}">SSL mode</label>
+                      {{ form.postgres_sslmode }}
+                      {{ form.postgres_sslmode.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.db_username.id_for_label }}">Username</label>
+                      {{ form.db_username }}
+                      {{ form.db_username.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.db_password.id_for_label }}">Password</label>
+                      {{ form.db_password }}
+                      {{ form.db_password.errors }}
+                    </div>
+                  </div>
+                </div>
+
+                <div data-provider-fields="snowflake" hidden>
+                  <h3 class="h6">Snowflake details</h3>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_account.id_for_label }}">Account identifier</label>
+                      {{ form.snowflake_account }}
+                      {{ form.snowflake_account.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_warehouse.id_for_label }}">Warehouse</label>
+                      {{ form.snowflake_warehouse }}
+                      {{ form.snowflake_warehouse.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_database.id_for_label }}">Database</label>
+                      {{ form.snowflake_database }}
+                      {{ form.snowflake_database.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_schema.id_for_label }}">Schema</label>
+                      {{ form.snowflake_schema }}
+                      {{ form.snowflake_schema.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_username.id_for_label }}">Username</label>
+                      {{ form.snowflake_username }}
+                      {{ form.snowflake_username.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_password.id_for_label }}">Password</label>
+                      {{ form.snowflake_password }}
+                      {{ form.snowflake_password.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_role.id_for_label }}">Role</label>
+                      {{ form.snowflake_role }}
+                      {{ form.snowflake_role.errors }}
+                    </div>
+                  </div>
+                </div>
+
+                <div data-provider-fields="bigquery" hidden>
+                  <h3 class="h6">BigQuery details</h3>
+                  <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.bigquery_project.id_for_label }}">Project ID</label>
+                      {{ form.bigquery_project }}
+                      {{ form.bigquery_project.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.bigquery_dataset.id_for_label }}">Dataset</label>
+                      {{ form.bigquery_dataset }}
+                      {{ form.bigquery_dataset.errors }}
+                    </div>
+                    <div class="col-12">
+                      <label class="form-label" for="{{ form.bigquery_credentials_path.id_for_label }}">Service account JSON path</label>
+                      {{ form.bigquery_credentials_path }}
+                      <div class="form-text">{{ form.bigquery_credentials_path.help_text }}</div>
+                      {{ form.bigquery_credentials_path.errors }}
+                    </div>
+                  </div>
+                </div>
+
+                <div data-provider-fields="sqlite" hidden>
+                  <h3 class="h6">SQLite details</h3>
+                  <div class="mb-3">
+                    <label class="form-label" for="{{ form.sqlite_path.id_for_label }}">SQLite database path</label>
+                    {{ form.sqlite_path }}
+                    {{ form.sqlite_path.errors }}
+                  </div>
+                </div>
+
+                <div data-provider-fields="custom" hidden>
+                  <h3 class="h6">Custom connection string</h3>
+                  <div class="mb-3">
+                    <label class="form-label" for="{{ form.connection_string.id_for_label }}">Connection string</label>
+                    {{ form.connection_string }}
+                    <div class="form-text">{{ form.connection_string.help_text }}</div>
+                    {{ form.connection_string.errors }}
+                  </div>
+                </div>
+                <div class="form-check form-switch mb-4">
+                  {{ form.enabled }}
+                  <label class="form-check-label" for="{{ form.enabled.id_for_label }}">Enabled</label>
+                  <div class="form-text">{{ form.enabled.help_text }}</div>
+                  {{ form.enabled.errors }}
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-primary" type="submit">Save connection</button>
+                  <a class="btn btn-outline-secondary" href="{% url 'core:settings_database_connections' %}">Cancel</a>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <form
+            method="post"
+            action="{% url 'core:settings_database_connection_delete' database_connection.id %}"
+            onsubmit="return confirm('Delete this database connection? Reports using it will stop working.');"
+          >
+            {% csrf_token %}
+            <button class="btn btn-outline-danger" type="submit">Delete connection</button>
+          </form>
+        </div>
+      </section>
     </div>
-  </section>
+  </div>
+
+  <script>
+    (function () {
+      const provider = document.getElementById("id_provider");
+      const sections = document.querySelectorAll("[data-provider-fields]");
+      if (!provider || !sections.length) return;
+
+      function updateProviderFields() {
+        sections.forEach(function (section) {
+          section.hidden = section.dataset.providerFields !== provider.value;
+        });
+      }
+
+      provider.addEventListener("change", updateProviderFields);
+      updateProviderFields();
+    })();
+  </script>
 {% endblock %}

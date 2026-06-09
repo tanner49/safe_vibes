@@ -188,7 +188,7 @@ class DatabaseConnection(models.Model):
         SNOWFLAKE = "snowflake", "Snowflake"
         BIGQUERY = "bigquery", "BigQuery"
         SQLITE = "sqlite", "SQLite"
-        OTHER = "other", "Other SQLAlchemy"
+        CUSTOM = "custom", "Custom connection string"
 
     organization = models.ForeignKey(
         Organization,
@@ -228,3 +228,199 @@ class DatabaseConnection(models.Model):
 
     def get_connection_string(self):
         return decrypt_text(self.encrypted_connection_string)
+
+
+class QueryExecutionLog(models.Model):
+    class CacheStatus(models.TextChoices):
+        MISS = "miss", "Cache miss"
+        HIT = "hit", "Cache hit"
+        BYPASS = "bypass", "Cache bypass"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="query_execution_logs",
+    )
+    database_connection = models.ForeignKey(
+        DatabaseConnection,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="query_execution_logs",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="query_execution_logs",
+    )
+    sql_preview = models.TextField(blank=True)
+    succeeded = models.BooleanField(null=True, blank=True)
+    row_count = models.PositiveIntegerField(null=True, blank=True)
+    raw_bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    cache_status = models.CharField(
+        max_length=20,
+        choices=CacheStatus.choices,
+        default=CacheStatus.MISS,
+    )
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        state = "pending"
+        if self.succeeded is True:
+            state = "succeeded"
+        elif self.succeeded is False:
+            state = "failed"
+        return f"{self.database_connection} query {state}"
+
+
+class Report(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
+
+    class SharingScope(models.TextChoices):
+        PRIVATE = "private", "Only me"
+        ORGANIZATION = "organization", "Everyone in my organization"
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="reports",
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_reports",
+    )
+    database_connection = models.ForeignKey(
+        DatabaseConnection,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reports",
+    )
+    ai_provider_key = models.ForeignKey(
+        AIProviderKey,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reports",
+    )
+    title = models.CharField(max_length=255, default="Untitled report")
+    ai_model_name = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    sharing_scope = models.CharField(
+        max_length=20,
+        choices=SharingScope.choices,
+        default=SharingScope.PRIVATE,
+    )
+    shared_with = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="shared_reports",
+    )
+    html = models.TextField(blank=True)
+    primary_sql = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return self.title
+
+
+class ReportChatMessage(models.Model):
+    class Role(models.TextChoices):
+        USER = "user", "User"
+        ASSISTANT = "assistant", "Assistant"
+        SYSTEM = "system", "System"
+
+    report = models.ForeignKey(
+        Report,
+        on_delete=models.CASCADE,
+        related_name="chat_messages",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="report_chat_messages",
+    )
+    role = models.CharField(max_length=20, choices=Role.choices)
+    content = models.TextField()
+    artifact = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.report} {self.role} message"
+
+
+class ReportDatasetCache(models.Model):
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="report_dataset_caches",
+    )
+    report = models.ForeignKey(
+        Report,
+        on_delete=models.CASCADE,
+        related_name="dataset_caches",
+    )
+    database_connection = models.ForeignKey(
+        DatabaseConnection,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="report_dataset_caches",
+    )
+    dataset_name = models.CharField(max_length=100, default="primary")
+    cache_key = models.CharField(max_length=64, unique=True)
+    sql_preview = models.TextField(blank=True)
+    compressed_payload = models.BinaryField()
+    raw_bytes = models.PositiveBigIntegerField()
+    compressed_bytes = models.PositiveBigIntegerField()
+    row_count = models.PositiveIntegerField()
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["report", "dataset_name", "expires_at"]),
+            models.Index(fields=["organization", "expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.report} {self.dataset_name} cache"
+
+
+class ReportDatasetCacheLock(models.Model):
+    cache_key = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"Cache lock {self.cache_key}"
