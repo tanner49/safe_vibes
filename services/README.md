@@ -1,7 +1,15 @@
 # Local Test Services
 
-This folder is intentionally test-only scaffolding. Nothing here is imported by the
-production Django app.
+This folder is intentionally test-only scaffolding.
+
+The shipped demo data source is `demo_data/demo_sales.sqlite3`. Rebuild it with:
+
+```powershell
+python services/build_demo_sqlite.py
+```
+
+The Postgres service below is optional scaffolding for trying the same kind of
+fake SaaS data against a real Postgres warehouse connection.
 
 ## Demo Postgres
 

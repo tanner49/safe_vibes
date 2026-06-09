@@ -19,6 +19,7 @@ from .ai_provider_models import (
     sync_provider_models,
 )
 from .database_connections import redact_connection_error
+from .demo_database import demo_database_connection_string
 from .ai_clients import AIMessage, generate_openai_text, provider_error_message, stream_openai_text
 from .query_execution import QueryPolicyError, execute_query
 from .report_generation import ReportGenerationError
@@ -60,6 +61,29 @@ class OrganizationModelTests(TestCase):
         organization = Organization.objects.create(name="Acme Revenue Team")
 
         self.assertEqual(organization.slug, "acme-revenue-team")
+
+    def test_organization_gets_demo_database_connection(self):
+        organization = Organization.objects.create(name="Acme Revenue Team")
+
+        database_connection = organization.database_connections.get(
+            name="Demo SaaS Sales"
+        )
+        self.assertEqual(database_connection.provider, DatabaseConnection.Provider.SQLITE)
+        self.assertTrue(database_connection.enabled)
+        self.assertEqual(
+            database_connection.get_connection_string(),
+            demo_database_connection_string(),
+        )
+
+    def test_demo_database_backfill_command_refreshes_existing_organization(self):
+        organization = Organization.objects.create(name="Acme Revenue Team")
+        organization.database_connections.filter(name="Demo SaaS Sales").delete()
+
+        call_command("ensure_demo_database", verbosity=0)
+
+        self.assertTrue(
+            organization.database_connections.filter(name="Demo SaaS Sales").exists()
+        )
 
 
 class AIClientTests(TestCase):
