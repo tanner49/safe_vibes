@@ -36,7 +36,7 @@ SECRET_ENCRYPTION_KEY = os.getenv("SECRET_ENCRYPTION_KEY", "")
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost",'safe-reports-27f4bd94302f.herokuapp.com'])
 
 
 # Application definition
