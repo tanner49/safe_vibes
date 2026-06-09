@@ -8,18 +8,19 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr) 380px;
       gap: 1rem;
-      min-height: calc(100vh - 150px);
+      height: calc(100vh - 178px);
+      min-height: 640px;
     }
 
     .report-canvas,
     .report-chat {
-      min-height: calc(100vh - 150px);
+      min-height: 0;
     }
 
     .report-frame {
       width: 100%;
-      height: calc(100vh - 230px);
-      min-height: 560px;
+      height: 100%;
+      min-height: 0;
       background: #ffffff;
     }
 
@@ -28,12 +29,28 @@
       flex-direction: column;
       border-left: 1px solid var(--sr-border);
       padding-left: 1rem;
+      max-height: 100%;
+      min-height: 0;
     }
 
     .report-chat-messages {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding-right: 0.25rem;
+      scroll-behavior: smooth;
+    }
+
+    .report-chat-composer {
+      flex: 0 0 auto;
+      border-top: 1px solid var(--sr-border);
+      background: var(--sr-bg);
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+    }
+
+    .report-chat-settings {
+      flex: 0 0 auto;
     }
 
     .chat-message {
@@ -97,6 +114,7 @@
       .report-chat {
         border-left: 0;
         padding-left: 0;
+        min-height: 640px;
       }
     }
   </style>
@@ -146,7 +164,7 @@
     </section>
 
     <aside class="report-chat">
-      <div class="mb-3">
+      <div class="report-chat-settings mb-3">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Chat</h2>
         </div>
@@ -166,7 +184,7 @@
       <div id="chat-messages" class="report-chat-messages">
         {% include "core/partials/report_chat_messages.html" %}
       </div>
-      <form id="report-chat-form" class="mt-3" method="post" action="{% url 'core:report_chat_stream' report.id %}">
+      <form id="report-chat-form" class="report-chat-composer" method="post" action="{% url 'core:report_chat_stream' report.id %}">
         {% csrf_token %}
         {{ chat_form.message }}
         <button class="btn btn-primary mt-2 w-100" type="submit">Send</button>

@@ -372,9 +372,6 @@
               <button class="btn btn-sm btn-primary" type="submit">Log out</button>
             </form>
           {% else %}
-            <div class="app-nav">
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:index' %}">Django Admin</a>
-            </div>
             <a class="btn btn-sm btn-primary" href="{% url 'login' %}">Log in</a>
           {% endif %}
         </div>

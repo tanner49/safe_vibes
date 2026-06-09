@@ -86,6 +86,14 @@ class OrganizationModelTests(TestCase):
         )
 
 
+class NavigationTests(TestCase):
+    def test_logged_out_home_does_not_show_django_admin_link(self):
+        response = self.client.get(reverse("core:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Django Admin")
+
+
 class AIClientTests(TestCase):
     def test_provider_error_message_summarizes_auth_failure(self):
         class ProviderException(Exception):
@@ -1743,6 +1751,18 @@ class ReportBuilderTests(TestCase):
         self.assertContains(response, "thinking-indicator")
         self.assertContains(response, "Assistant is thinking")
         self.assertContains(response, "removeThinking(assistant)")
+
+    def test_report_builder_chat_history_scrolls_above_composer(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "report-chat-messages")
+        self.assertContains(response, "overflow-y: auto")
+        self.assertContains(response, "report-chat-composer")
+        self.assertContains(response, "min-height: 0")
 
     def test_report_builder_renders_ai_model_selector(self):
         report = self.create_report()
