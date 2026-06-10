@@ -17,6 +17,16 @@ governance problems.
 Safe Vibes gives those teams a safer place to build while giving engineering
 and IT a control plane.
 
+## Screenshots
+
+### Builder
+
+![Safe Vibes builder showing a generated report preview and AI chat sidebar](Reports.png)
+
+### Settings
+
+![Safe Vibes security settings showing IP and external URL controls](Settings.png)
+
 ## Main Features
 
 - Chat-style AI builder for HTML + SQL reports
