@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Security Settings - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Company settings</div>
+          <h1 class="h3 mb-1">Security</h1>
+          <p class="text-secondary mb-0">
+            Control where reports can be opened from and which external domains report HTML can call.
+          </p>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="mb-4 pb-4 border-bottom">
+              <div class="form-check form-switch mb-3">
+                {{ form.report_ip_allowlist_enabled }}
+                <label class="form-check-label" for="{{ form.report_ip_allowlist_enabled.id_for_label }}">
+                  {{ form.report_ip_allowlist_enabled.label }}
+                </label>
+                <div class="form-text">{{ form.report_ip_allowlist_enabled.help_text }}</div>
+                {{ form.report_ip_allowlist_enabled.errors }}
+              </div>
+
+              <label class="form-label" for="{{ form.report_ip_allowlist.id_for_label }}">
+                {{ form.report_ip_allowlist.label }}
+              </label>
+              {{ form.report_ip_allowlist }}
+              <div class="form-text">{{ form.report_ip_allowlist.help_text }}</div>
+              {{ form.report_ip_allowlist.errors }}
+            </div>
+
+            <div class="mb-4 pb-4 border-bottom">
+              <div class="form-check form-switch mb-3">
+                {{ form.report_url_whitelist_enabled }}
+                <label class="form-check-label" for="{{ form.report_url_whitelist_enabled.id_for_label }}">
+                  {{ form.report_url_whitelist_enabled.label }}
+                </label>
+                <div class="form-text">{{ form.report_url_whitelist_enabled.help_text }}</div>
+                {{ form.report_url_whitelist_enabled.errors }}
+              </div>
+
+              <label class="form-label" for="{{ form.report_url_whitelist.id_for_label }}">
+                {{ form.report_url_whitelist.label }}
+              </label>
+              {{ form.report_url_whitelist }}
+              <div class="form-text">
+                {{ form.report_url_whitelist.help_text }}
+                If you enable this with an empty list, Safe Reports fills in common library CDNs.
+              </div>
+              {{ form.report_url_whitelist.errors }}
+            </div>
+
+            <div class="mb-4">
+              <div class="form-check form-switch mb-3">
+                {{ form.report_url_blacklist_enabled }}
+                <label class="form-check-label" for="{{ form.report_url_blacklist_enabled.id_for_label }}">
+                  {{ form.report_url_blacklist_enabled.label }}
+                </label>
+                <div class="form-text">{{ form.report_url_blacklist_enabled.help_text }}</div>
+                {{ form.report_url_blacklist_enabled.errors }}
+              </div>
+
+              <label class="form-label" for="{{ form.report_url_blacklist.id_for_label }}">
+                {{ form.report_url_blacklist.label }}
+              </label>
+              {{ form.report_url_blacklist }}
+              <div class="form-text">{{ form.report_url_blacklist.help_text }}</div>
+              {{ form.report_url_blacklist.errors }}
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+              <button class="btn btn-primary" type="submit">Save security settings</button>
+              <a class="btn btn-outline-secondary" href="{% url 'core:settings_home' %}">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {{ default_report_url_whitelist|json_script:"default-report-url-whitelist" }}
+  <script>
+    (function () {
+      const toggle = document.getElementById("id_report_url_whitelist_enabled");
+      const textarea = document.getElementById("id_report_url_whitelist");
+      const defaultsElement = document.getElementById("default-report-url-whitelist");
+      if (!toggle || !textarea || !defaultsElement) return;
+
+      const defaults = JSON.parse(defaultsElement.textContent || "[]");
+      toggle.addEventListener("change", function () {
+        if (!toggle.checked) return;
+        if (textarea.value.trim()) return;
+        textarea.value = defaults.join("\n");
+      });
+    })();
+  </script>
+{% endblock %}

@@ -20,6 +20,12 @@ class Organization(models.Model):
     max_compressed_bytes = models.PositiveBigIntegerField(
         default=settings.REPORT_MAX_COMPRESSED_BYTES
     )
+    report_ip_allowlist_enabled = models.BooleanField(default=False)
+    report_ip_allowlist = models.TextField(blank=True)
+    report_url_whitelist_enabled = models.BooleanField(default=False)
+    report_url_whitelist = models.TextField(blank=True)
+    report_url_blacklist_enabled = models.BooleanField(default=False)
+    report_url_blacklist = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -29,6 +29,7 @@ from .forms import (
     DatabaseConnectionCreateForm,
     DatabaseConnectionUpdateForm,
     OrganizationPolicyForm,
+    OrganizationSecurityForm,
     ReportAIModelForm,
     ReportChatForm,
     ReportImportForm,
@@ -40,6 +41,13 @@ from .models import AIProviderKey, DatabaseConnection, Membership, Report, Repor
 from .database_connections import test_database_connection
 from .query_execution import QueryExecutionError
 from .report_cache import ReportCacheError, async_get_report_dataset, get_report_dataset
+from .security import (
+    DEFAULT_REPORT_URL_WHITELIST,
+    enforce_report_ip_policy,
+    report_csp,
+    sanitize_report_html_urls,
+    split_policy_lines,
+)
 from .report_generation import (
     ReportGenerationError,
     apply_report_artifact,
@@ -95,6 +103,7 @@ def reports_placeholder(request):
                 "organization": None,
             },
         )
+    enforce_report_ip_policy(request, membership.organization)
     reports = visible_published_reports(request.user, membership).select_related(
         "database_connection",
         "owner",
@@ -198,6 +207,7 @@ def builder_home(request):
     membership = get_current_membership(request.user)
     if not membership:
         raise PermissionDenied
+    enforce_report_ip_policy(request, membership.organization)
     drafts = (
         membership.organization.reports.filter(
             owner=request.user,
@@ -229,6 +239,7 @@ def builder_new(request):
     membership = get_current_membership(request.user)
     if not membership:
         raise PermissionDenied
+    enforce_report_ip_policy(request, membership.organization)
     report = create_draft_report(membership.organization, request.user)
     return redirect("core:report_builder", report.id)
 
@@ -240,6 +251,7 @@ async def builder_import(request):
     membership = await sync_to_async(get_current_membership, thread_sensitive=True)(user)
     if not membership:
         raise PermissionDenied
+    enforce_report_ip_policy(request, membership.organization)
     post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
     form = ReportImportForm(post_data)
     if not form.is_valid():
@@ -425,6 +437,7 @@ def browser_preview_error_count_since_last_user_message(report):
 @login_required
 def report_builder(request, report_id):
     report, membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if request.method == "POST":
         form = ReportUpdateForm(report.organization, request.POST, instance=report)
         if form.is_valid():
@@ -452,6 +465,7 @@ def report_builder(request, report_id):
 @require_POST
 def report_model_update(request, report_id):
     report, _membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     form = ReportAIModelForm(report.organization, request.POST, instance=report)
     if form.is_valid():
         form.save()
@@ -465,6 +479,7 @@ def report_model_update(request, report_id):
 @require_POST
 def report_publish(request, report_id):
     report, _membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if report.status != Report.Status.PUBLISHED:
         report.status = Report.Status.PUBLISHED
         report.save(update_fields=["status", "updated_at"])
@@ -476,6 +491,7 @@ def report_publish(request, report_id):
 @require_POST
 def report_draft_delete(request, report_id):
     report, _membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if report.status != Report.Status.DRAFT:
         raise PermissionDenied
     title = report.title
@@ -488,6 +504,7 @@ def report_draft_delete(request, report_id):
 @require_POST
 def report_delete(request, report_id):
     report, _membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     title = report.title
     report.delete()
     messages.success(request, f"{title} was deleted.")
@@ -497,6 +514,7 @@ def report_delete(request, report_id):
 @login_required
 def report_share(request, report_id):
     report, membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if request.method == "POST":
         form = ReportSharingForm(report.organization, request.POST, instance=report)
         if form.is_valid():
@@ -520,6 +538,7 @@ def report_share(request, report_id):
 @login_required
 def report_share_options(request, report_id):
     report, _membership = get_editable_report_for_user(request.user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     query = (request.GET.get("q") or "").strip()
     users = User.objects.filter(
         organization_memberships__organization=report.organization,
@@ -550,6 +569,7 @@ async def report_chat_send(request, report_id):
         get_editable_report_for_user,
         thread_sensitive=True,
     )(user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
     form = ReportChatForm(post_data)
     if form.is_valid():
@@ -597,6 +617,7 @@ async def report_chat_stream(request, report_id):
         get_editable_report_for_user,
         thread_sensitive=True,
     )(user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
     form = ReportChatForm(post_data)
     if not form.is_valid():
@@ -688,7 +709,11 @@ async def report_chat_stream(request, report_id):
 @xframe_options_sameorigin
 def report_preview(request, report_id):
     report, _membership = get_report_for_user(request.user, report_id)
-    html = report.html or "<p>No report HTML yet.</p>"
+    enforce_report_ip_policy(request, report.organization)
+    html = sanitize_report_html_urls(
+        report.organization,
+        report.html or "<p>No report HTML yet.</p>",
+    )
     dataset_url = request.build_absolute_uri(
         reverse("core:report_primary_dataset", args=[report.id])
     )
@@ -696,9 +721,51 @@ def report_preview(request, report_id):
         reverse("core:report_preview_error", args=[report.id])
     )
     csrf_token = get_token(request)
+    url_policy = {
+        "whitelistEnabled": report.organization.report_url_whitelist_enabled,
+        "whitelist": split_policy_lines(report.organization.report_url_whitelist),
+        "blacklistEnabled": report.organization.report_url_blacklist_enabled,
+        "blacklist": split_policy_lines(report.organization.report_url_blacklist),
+    }
     sdk = f"""
 <script>
 (function () {{
+  const urlPolicy = {json.dumps(url_policy)};
+  function normalizeHost(value) {{
+    try {{
+      const url = new URL(value, window.location.href);
+      if (!["http:", "https:"].includes(url.protocol)) return "";
+      return url.hostname.toLowerCase();
+    }} catch (error) {{
+      return "";
+    }}
+  }}
+  function domainMatches(hostname, domain) {{
+    domain = String(domain || "").toLowerCase().replace(/^https?:\\/\\//, "").split("/")[0].split(":")[0].replace(/^\\*\\./, "");
+    return hostname === domain || hostname.endsWith("." + domain);
+  }}
+  function safeReportsUrlAllowed(value) {{
+    const hostname = normalizeHost(value);
+    if (!hostname || hostname === window.location.hostname) return true;
+    if (urlPolicy.blacklistEnabled && urlPolicy.blacklist.some((domain) => domainMatches(hostname, domain))) return false;
+    if (urlPolicy.whitelistEnabled) return urlPolicy.whitelist.some((domain) => domainMatches(hostname, domain));
+    return true;
+  }}
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = function (resource, options) {{
+    const target = typeof resource === "string" ? resource : resource && resource.url;
+    if (target && !safeReportsUrlAllowed(target)) {{
+      return Promise.reject(new Error("Blocked by report URL policy: " + target));
+    }}
+    return nativeFetch(resource, options);
+  }};
+  const nativeOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {{
+    if (url && !safeReportsUrlAllowed(url)) {{
+      throw new Error("Blocked by report URL policy: " + url);
+    }}
+    return nativeOpen.apply(this, arguments);
+  }};
   let reportingError = false;
   let lastErrorSignature = "";
   let lastErrorAt = 0;
@@ -774,7 +841,9 @@ def report_preview(request, report_id):
 }})();
 </script>
 """
-    return HttpResponse(sdk + html)
+    response = HttpResponse(sdk + html)
+    response["Content-Security-Policy"] = report_csp(report.organization)
+    return response
 
 
 @login_required
@@ -785,6 +854,7 @@ async def report_preview_error(request, report_id):
         get_editable_report_for_user,
         thread_sensitive=True,
     )(user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if report.status != Report.Status.DRAFT:
         return JsonResponse({"repaired": False, "message": "Preview error logged for a published report."})
 
@@ -867,6 +937,7 @@ async def report_primary_dataset(request, report_id):
         get_report_for_user,
         thread_sensitive=True,
     )(user, report_id)
+    enforce_report_ip_policy(request, report.organization)
     if not report.primary_sql.strip():
         return JsonResponse({"error": "This report does not have a primary SQL query."}, status=400)
     if not report.database_connection:
@@ -930,6 +1001,32 @@ def settings_report_limits(request):
             "form": form,
             "membership": membership,
             "organization": organization,
+        },
+    )
+
+
+@login_required
+def settings_security(request):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+
+    if request.method == "POST":
+        form = OrganizationSecurityForm(request.POST, instance=organization)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Security settings updated.")
+            return redirect("core:settings_security")
+    else:
+        form = OrganizationSecurityForm(instance=organization)
+
+    return render(
+        request,
+        "core/settings_security.html",
+        {
+            "form": form,
+            "membership": membership,
+            "organization": organization,
+            "default_report_url_whitelist": DEFAULT_REPORT_URL_WHITELIST,
         },
     )
 

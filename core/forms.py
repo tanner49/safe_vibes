@@ -17,6 +17,7 @@ from .database_connections import (
     sanitize_connection_string,
 )
 from .models import AIProviderKey, DatabaseConnection, Membership, Organization, Report
+from .security import DEFAULT_REPORT_URL_WHITELIST, split_policy_lines
 
 User = get_user_model()
 
@@ -85,6 +86,82 @@ class OrganizationPolicyForm(forms.ModelForm):
             "max_raw_bytes": "Maximum uncompressed JSON payload size returned to the browser.",
             "max_compressed_bytes": "Maximum compressed cache entry size stored in the app database.",
         }
+
+
+class OrganizationSecurityForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = [
+            "report_ip_allowlist_enabled",
+            "report_ip_allowlist",
+            "report_url_whitelist_enabled",
+            "report_url_whitelist",
+            "report_url_blacklist_enabled",
+            "report_url_blacklist",
+        ]
+        widgets = {
+            "report_ip_allowlist_enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "report_ip_allowlist": forms.Textarea(
+                attrs={
+                    "class": "form-control font-monospace",
+                    "rows": 5,
+                    "placeholder": "203.0.113.10\n198.51.100.0/24",
+                }
+            ),
+            "report_url_whitelist_enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "report_url_whitelist": forms.Textarea(
+                attrs={
+                    "class": "form-control font-monospace",
+                    "rows": 8,
+                }
+            ),
+            "report_url_blacklist_enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "report_url_blacklist": forms.Textarea(
+                attrs={
+                    "class": "form-control font-monospace",
+                    "rows": 5,
+                    "placeholder": "example.com\ntracking.vendor.com",
+                }
+            ),
+        }
+        labels = {
+            "report_ip_allowlist_enabled": "Restrict report access by IP",
+            "report_ip_allowlist": "Allowed IPs and CIDR ranges",
+            "report_url_whitelist_enabled": "Allow report requests only to approved domains",
+            "report_url_whitelist": "Allowed report URL domains",
+            "report_url_blacklist_enabled": "Block report requests to specific domains",
+            "report_url_blacklist": "Blocked report URL domains",
+        }
+        help_texts = {
+            "report_ip_allowlist_enabled": "When enabled, only requests from these IPs or CIDR ranges can open reports, previews, builders, or report data endpoints.",
+            "report_ip_allowlist": "One IPv4/IPv6 address or CIDR range per line. Use your company VPN egress IPs.",
+            "report_url_whitelist_enabled": "When enabled, report HTML can only load or fetch external URLs from these domains.",
+            "report_url_whitelist": "One domain per line. Subdomains are allowed automatically.",
+            "report_url_blacklist_enabled": "When enabled, these domains are blocked from report HTML even if outbound access is otherwise open.",
+            "report_url_blacklist": "One domain per line. Subdomains are blocked automatically.",
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        whitelist_enabled = cleaned_data.get("report_url_whitelist_enabled")
+        whitelist = cleaned_data.get("report_url_whitelist")
+        if whitelist_enabled and not split_policy_lines(whitelist):
+            cleaned_data["report_url_whitelist"] = "\n".join(DEFAULT_REPORT_URL_WHITELIST)
+        if cleaned_data.get("report_ip_allowlist_enabled") and not split_policy_lines(
+            cleaned_data.get("report_ip_allowlist")
+        ):
+            self.add_error(
+                "report_ip_allowlist",
+                "Add at least one allowed IP address or CIDR range before enabling this.",
+            )
+        if cleaned_data.get("report_url_blacklist_enabled") and not split_policy_lines(
+            cleaned_data.get("report_url_blacklist")
+        ):
+            self.add_error(
+                "report_url_blacklist",
+                "Add at least one blocked domain before enabling this.",
+            )
+        return cleaned_data
 
 
 class CompanyUserCreateForm(forms.Form):

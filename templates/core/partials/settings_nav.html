@@ -20,6 +20,9 @@
       <a class="settings-nav-link {% if current == 'settings_report_limits' %}active{% endif %}" href="{% url 'core:settings_report_limits' %}">
         Report policy
       </a>
+      <a class="settings-nav-link {% if current == 'settings_security' %}active{% endif %}" href="{% url 'core:settings_security' %}">
+        Security
+      </a>
     </nav>
   </aside>
 {% endwith %}

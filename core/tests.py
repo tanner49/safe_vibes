@@ -39,6 +39,7 @@ from .query_execution import (
 )
 from . import report_cache
 from .report_generation import ReportGenerationError
+from .security import DEFAULT_REPORT_URL_WHITELIST
 from .forms import AIProviderKeyCreateForm, DatabaseConnectionCreateForm
 from .models import (
     AIModelCatalog,
@@ -427,6 +428,80 @@ class CompanySettingsTests(TestCase):
         self.assertEqual(organization.max_rows, 10000)
         self.assertEqual(organization.max_raw_bytes, 2000000)
         self.assertEqual(organization.max_compressed_bytes, 500000)
+
+    def test_company_admin_can_update_security_settings(self):
+        user = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=user,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("core:settings_security"),
+            {
+                "report_ip_allowlist_enabled": "on",
+                "report_ip_allowlist": "203.0.113.10\n198.51.100.0/24",
+                "report_url_whitelist_enabled": "on",
+                "report_url_whitelist": "cdn.example.com",
+                "report_url_blacklist_enabled": "on",
+                "report_url_blacklist": "tracker.example.com",
+            },
+        )
+
+        organization.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:settings_security"))
+        self.assertTrue(organization.report_ip_allowlist_enabled)
+        self.assertIn("198.51.100.0/24", organization.report_ip_allowlist)
+        self.assertTrue(organization.report_url_whitelist_enabled)
+        self.assertEqual(organization.report_url_whitelist, "cdn.example.com")
+        self.assertTrue(organization.report_url_blacklist_enabled)
+        self.assertEqual(organization.report_url_blacklist, "tracker.example.com")
+
+    def test_security_settings_page_includes_whitelist_autofill_helper(self):
+        user = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=user,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("core:settings_security"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "default-report-url-whitelist")
+        self.assertContains(response, "id_report_url_whitelist_enabled")
+        self.assertContains(response, "textarea.value = defaults.join")
+        self.assertContains(response, "cdn.jsdelivr.net")
+
+    def test_url_whitelist_autopopulates_common_library_domains(self):
+        user = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=user,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("core:settings_security"),
+            {
+                "report_url_whitelist_enabled": "on",
+                "report_url_whitelist": "",
+            },
+        )
+
+        organization.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(organization.report_url_whitelist_enabled)
+        for domain in DEFAULT_REPORT_URL_WHITELIST:
+            self.assertIn(domain, organization.report_url_whitelist)
 
     def test_add_user_link_is_visible_when_sso_is_off(self):
         user = create_user("admin@example.com")
@@ -1846,6 +1921,76 @@ class ReportBuilderTests(TestCase):
         self.assertContains(response, "return payload.rows || []")
         self.assertContains(response, "datasetMeta")
         self.assertContains(response, "Pipeline")
+
+    def test_report_ip_allowlist_blocks_report_access(self):
+        report = self.create_report()
+        self.organization.report_ip_allowlist_enabled = True
+        self.organization.report_ip_allowlist = "203.0.113.10"
+        self.organization.save(
+            update_fields=["report_ip_allowlist_enabled", "report_ip_allowlist"]
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(
+            reverse("core:report_preview", args=[report.id]),
+            REMOTE_ADDR="198.51.100.20",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_report_ip_allowlist_allows_cidr_match(self):
+        report = self.create_report()
+        self.organization.report_ip_allowlist_enabled = True
+        self.organization.report_ip_allowlist = "198.51.100.0/24"
+        self.organization.save(
+            update_fields=["report_ip_allowlist_enabled", "report_ip_allowlist"]
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(
+            reverse("core:report_preview", args=[report.id]),
+            REMOTE_ADDR="198.51.100.20",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_report_preview_enforces_url_whitelist_with_csp_and_runtime_policy(self):
+        report = self.create_report()
+        self.organization.report_url_whitelist_enabled = True
+        self.organization.report_url_whitelist = "cdn.jsdelivr.net\ncdnjs.cloudflare.com"
+        self.organization.save(
+            update_fields=["report_url_whitelist_enabled", "report_url_whitelist"]
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_preview", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Content-Security-Policy", response.headers)
+        self.assertIn("https://cdn.jsdelivr.net", response.headers["Content-Security-Policy"])
+        self.assertContains(response, '"whitelistEnabled": true')
+        self.assertContains(response, "Blocked by report URL policy")
+
+    def test_report_preview_neutralizes_blacklisted_external_urls(self):
+        report = self.create_report()
+        report.html = '<script src="https://evil.example/app.js"></script><img src="https://cdn.example/logo.png">'
+        report.save(update_fields=["html"])
+        self.organization.report_url_blacklist_enabled = True
+        self.organization.report_url_blacklist = "evil.example"
+        self.organization.save(
+            update_fields=["report_url_blacklist_enabled", "report_url_blacklist"]
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_preview", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-blocked-src="https://evil.example/app.js"')
+        self.assertNotIn(
+            '<script src="https://evil.example/app.js"',
+            response.content.decode(),
+        )
+        self.assertContains(response, 'src="https://cdn.example/logo.png"')
 
     def test_report_chat_updates_report_with_ai_draft(self):
         report = self.create_report()

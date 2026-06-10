@@ -58,6 +58,7 @@ urlpatterns = [
         views.settings_report_limits,
         name="settings_report_limits",
     ),
+    path("settings/security/", views.settings_security, name="settings_security"),
     path(
         "settings/connections/",
         views.settings_database_connections,
