@@ -1,4 +1,4 @@
-"""Django settings for the save vibes application."""
+"""Django settings for the Safe Vibes application."""
 
 import os
 from pathlib import Path
@@ -26,7 +26,7 @@ def env_list(name: str, default: list[str] | None = None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-APP_NAME = os.getenv("APP_NAME", "Save Vibes")
+APP_NAME = os.getenv("APP_NAME", "Safe Vibes")
 
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",

@@ -1,4 +1,4 @@
-# Save Vibes MVP Product Requirements
+# Safe Vibes MVP Product Requirements
 
 ## Product Summary
 

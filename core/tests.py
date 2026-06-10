@@ -478,6 +478,123 @@ class CompanySettingsTests(TestCase):
         self.assertContains(response, reverse("core:sso_oidc_callback", args=[organization.slug]))
         self.assertContains(response, "OIDC")
 
+    def test_sso_callback_provisions_new_viewer(self):
+        organization = Organization.objects.create(
+            name="Internal Test Org",
+            sso_oidc_enabled=True,
+            sso_oidc_issuer_url="https://example.okta.com/oauth2/default",
+            sso_oidc_client_id="client-123",
+        )
+        organization.set_sso_oidc_client_secret("secret-abc")
+        organization.save()
+        oidc_client = type(
+            "OIDCClient",
+            (),
+            {
+                "authorize_access_token": lambda self, request: {
+                    "userinfo": {
+                        "email": "new.viewer@example.com",
+                        "email_verified": True,
+                    }
+                }
+            },
+        )()
+
+        with patch("core.views.sso_oidc_client", return_value=oidc_client):
+            response = self.client.get(
+                reverse("core:sso_oidc_callback", args=[organization.slug])
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
+        user = get_user_model().objects.get(email="new.viewer@example.com")
+        membership = Membership.objects.get(organization=organization, user=user)
+        self.assertEqual(membership.role, Membership.Role.VIEWER)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), user.id)
+
+    def test_sso_callback_adds_existing_user_without_changing_other_memberships(self):
+        existing_user = create_user("existing@example.com")
+        existing_org = Organization.objects.create(name="Existing Org")
+        Membership.objects.create(
+            organization=existing_org,
+            user=existing_user,
+            role=Membership.Role.ADMIN,
+        )
+        organization = Organization.objects.create(
+            name="Internal Test Org",
+            sso_oidc_enabled=True,
+            sso_oidc_issuer_url="https://example.okta.com/oauth2/default",
+            sso_oidc_client_id="client-123",
+        )
+        organization.set_sso_oidc_client_secret("secret-abc")
+        organization.save()
+        oidc_client = type(
+            "OIDCClient",
+            (),
+            {
+                "authorize_access_token": lambda self, request: {
+                    "userinfo": {
+                        "email": "existing@example.com",
+                        "email_verified": True,
+                    }
+                }
+            },
+        )()
+
+        with patch("core.views.sso_oidc_client", return_value=oidc_client):
+            response = self.client.get(
+                reverse("core:sso_oidc_callback", args=[organization.slug])
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            Membership.objects.filter(
+                organization=organization,
+                user=existing_user,
+                role=Membership.Role.VIEWER,
+            ).exists()
+        )
+        self.assertTrue(
+            Membership.objects.filter(
+                organization=existing_org,
+                user=existing_user,
+                role=Membership.Role.ADMIN,
+            ).exists()
+        )
+
+    def test_sso_callback_rejects_unverified_email(self):
+        organization = Organization.objects.create(
+            name="Internal Test Org",
+            sso_oidc_enabled=True,
+            sso_oidc_issuer_url="https://example.okta.com/oauth2/default",
+            sso_oidc_client_id="client-123",
+        )
+        organization.set_sso_oidc_client_secret("secret-abc")
+        organization.save()
+        oidc_client = type(
+            "OIDCClient",
+            (),
+            {
+                "authorize_access_token": lambda self, request: {
+                    "userinfo": {
+                        "email": "new.viewer@example.com",
+                        "email_verified": False,
+                    }
+                }
+            },
+        )()
+
+        with patch("core.views.sso_oidc_client", return_value=oidc_client):
+            response = self.client.get(
+                reverse("core:sso_oidc_callback", args=[organization.slug])
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("login"))
+        self.assertFalse(
+            get_user_model().objects.filter(email="new.viewer@example.com").exists()
+        )
+
     def test_company_admin_can_update_security_settings(self):
         user = create_user("admin@example.com")
         organization = Organization.objects.create(name="Internal Test Org")

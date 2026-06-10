@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.middleware.csrf import get_token
 from django.core.exceptions import PermissionDenied
@@ -12,6 +12,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from asgiref.sync import sync_to_async
+from authlib.integrations.base_client import OAuthError
+from authlib.integrations.django_client import OAuth
 import json
 import re
 
@@ -87,22 +89,81 @@ def home(request):
     return render(request, "core/home.html")
 
 
+def sso_oidc_client(organization):
+    issuer_url = organization.sso_oidc_issuer_url.rstrip("/")
+    oauth = OAuth()
+    return oauth.register(
+        name=f"organization_{organization.id}_oidc",
+        client_id=organization.sso_oidc_client_id,
+        client_secret=organization.get_sso_oidc_client_secret(),
+        server_metadata_url=f"{issuer_url}/.well-known/openid-configuration",
+        client_kwargs={"scope": organization.sso_oidc_scopes},
+    )
+
+
+def sso_oidc_redirect_uri(request, organization):
+    return request.build_absolute_uri(
+        reverse("core:sso_oidc_callback", args=[organization.slug])
+    )
+
+
+def provision_sso_user(organization, claims):
+    email = (claims.get("email") or claims.get("preferred_username") or "").strip()
+    if not email:
+        raise ValueError("Your identity provider did not return an email claim.")
+    if claims.get("email_verified") is False:
+        raise ValueError("Your identity provider returned an unverified email address.")
+
+    with transaction.atomic():
+        user, _created = User.objects.get_or_create(
+            email=User.objects.normalize_email(email),
+            defaults={"is_active": True},
+        )
+        if not user.has_usable_password():
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+        Membership.objects.get_or_create(
+            organization=organization,
+            user=user,
+            defaults={"role": Membership.Role.VIEWER},
+        )
+    return user
+
+
 def sso_oidc_start(request, organization_slug):
     organization = get_object_or_404(Organization, slug=organization_slug)
     if not organization.sso_oidc_enabled:
         messages.error(request, "SSO is not enabled for this organization yet.")
         return redirect("login")
-    messages.info(
+    if not organization.sso_oidc_client_id or not organization.get_sso_oidc_client_secret():
+        messages.error(request, "SSO is missing its client ID or client secret.")
+        return redirect("login")
+    client = sso_oidc_client(organization)
+    return client.authorize_redirect(
         request,
-        "SSO configuration is saved. The OIDC login callback flow is the next integration step.",
+        sso_oidc_redirect_uri(request, organization),
     )
-    return redirect("login")
 
 
 def sso_oidc_callback(request, organization_slug):
-    get_object_or_404(Organization, slug=organization_slug)
-    messages.error(request, "OIDC callback handling is not enabled in this build yet.")
-    return redirect("login")
+    organization = get_object_or_404(Organization, slug=organization_slug)
+    if not organization.sso_oidc_enabled:
+        messages.error(request, "SSO is not enabled for this organization yet.")
+        return redirect("login")
+
+    client = sso_oidc_client(organization)
+    try:
+        token = client.authorize_access_token(request)
+        claims = token.get("userinfo") or client.parse_id_token(request, token)
+        if not claims:
+            claims = client.userinfo(token=token)
+        user = provision_sso_user(organization, claims)
+    except (OAuthError, ValueError) as exc:
+        messages.error(request, f"SSO sign-in failed: {exc}")
+        return redirect("login")
+
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return redirect("core:reports_placeholder")
 
 
 @login_required

@@ -1,6 +1,6 @@
-# Save Vibes
+# Safe Vibes
 
-Save Vibes is a Django app for building and sharing AI-generated HTML reports
+Safe Vibes is a Django app for building and sharing AI-generated HTML reports
 without turning every sales ops or finance experiment into unmanaged shadow IT.
 
 Users chat with an AI report builder, connect approved databases, generate SQL
@@ -14,7 +14,7 @@ Business teams are already vibe-coding reports with AI. They paste SQL into
 tools, pass around HTML files, and accidentally create cost, security, and
 governance problems.
 
-Save Vibes gives those teams a safer place to build while giving engineering
+Safe Vibes gives those teams a safer place to build while giving engineering
 and IT a control plane.
 
 ## Main Features
@@ -241,14 +241,15 @@ Settings > SSO provides a handholding OIDC configuration page:
 - Redirect / callback URL
 - Require SSO toggle
 
-Important: the full OIDC callback login flow is not enabled yet. Today this page
-stores the configuration and the `Require SSO` toggle blocks password login for
-non-staff users in that organization. Staff and superusers can still use password
-login for bootstrap/admin access.
+Users who complete SSO through an organization's configured login URL are
+created automatically if needed and added to that organization as viewers.
+Company admins can promote them later. The `Require SSO` toggle blocks password
+login for non-staff users in that organization. Staff and superusers can still
+use password login for bootstrap/admin access.
 
 ## Security Model
 
-Save Vibes includes several guardrails:
+Safe Vibes includes several guardrails:
 
 - Read-only SQL policy checks
 - Query timeout, row count, raw byte, and compressed cache limits
@@ -280,4 +281,4 @@ python services/seed_demo_postgres.py
 
 ## License
 
-Save Vibes is released under the Apache License 2.0. See [LICENSE](LICENSE).
+Safe Vibes is released under the Apache License 2.0. See [LICENSE](LICENSE).
