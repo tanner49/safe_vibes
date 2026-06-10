@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.decorators.clickjacking import xframe_options_sameorigin
+from asgiref.sync import sync_to_async
 import json
 import re
 
@@ -37,12 +38,14 @@ from .forms import (
 )
 from .memberships import get_current_membership
 from .models import AIProviderKey, DatabaseConnection, Membership, Report, ReportChatMessage
-from .database_connections import test_sqlalchemy_connection
+from .database_connections import test_database_connection
 from .query_execution import QueryExecutionError
-from .report_cache import ReportCacheError, get_report_dataset
+from .report_cache import ReportCacheError, async_get_report_dataset, get_report_dataset
 from .report_generation import (
     ReportGenerationError,
     apply_report_artifact,
+    async_generate_report_chat_response,
+    async_stream_report_chat_response,
     generate_report_chat_response,
     stream_report_chat_response,
 )
@@ -133,6 +136,12 @@ def get_default_ai_provider_key(organization):
 def get_default_ai_model_name(provider_key):
     if not provider_key:
         return ""
+    if provider_key.model_name and provider_key.available_models.filter(
+        provider_model_id=provider_key.model_name,
+        allowed=True,
+        available=True,
+    ).exists():
+        return provider_key.model_name
     provider_model = (
         provider_key.available_models.filter(allowed=True, available=True)
         .order_by("provider_model_id")
@@ -194,7 +203,10 @@ def get_provider_model_choices_by_key(organization):
                 {"provider_model_id": model_id, "display_name": display_name}
                 for model_id, display_name in get_curated_model_choices(provider_key.provider)
             ]
-        choices[str(provider_key.id)] = models
+        choices[str(provider_key.id)] = {
+            "default_model": get_default_ai_model_name(provider_key),
+            "models": models,
+        }
     return choices
 
 
@@ -240,33 +252,40 @@ def builder_new(request):
 
 @login_required
 @require_POST
-def builder_import(request):
-    membership = get_current_membership(request.user)
+async def builder_import(request):
+    user = await request.auser()
+    membership = await sync_to_async(get_current_membership, thread_sensitive=True)(user)
     if not membership:
         raise PermissionDenied
-    form = ReportImportForm(request.POST)
+    post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
+    form = ReportImportForm(post_data)
     if not form.is_valid():
         messages.error(request, "Paste both SQL and HTML to import an existing report.")
         return redirect("core:builder_home")
 
-    report = create_draft_report(membership.organization, request.user)
+    report = await sync_to_async(create_draft_report, thread_sensitive=True)(
+        membership.organization,
+        user,
+    )
     report.title = "Imported report draft"
     report.primary_sql = form.cleaned_data["primary_sql"]
     report.html = form.cleaned_data["html"]
-    report.save(update_fields=["title", "primary_sql", "html", "updated_at"])
+    await sync_to_async(report.save, thread_sensitive=True)(
+        update_fields=["title", "primary_sql", "html", "updated_at"]
+    )
 
     prompt = build_import_adaptation_prompt(
         form.cleaned_data["primary_sql"],
         form.cleaned_data["html"],
         form.cleaned_data["instructions"],
     )
-    ReportChatMessage.objects.create(
+    await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
         report=report,
-        user=request.user,
+        user=user,
         role=ReportChatMessage.Role.USER,
         content=prompt,
     )
-    apply_ai_draft_to_report(report, prompt, user=request.user)
+    await async_apply_ai_draft_to_report(report, prompt, user=user)
     return redirect("core:report_builder", report.id)
 
 
@@ -334,6 +353,34 @@ def apply_ai_draft_to_report(report, prompt, user=None):
         assistant_content = f"I could not update the report: {exc}"
         artifact = {}
     ReportChatMessage.objects.create(
+        report=report,
+        role=ReportChatMessage.Role.ASSISTANT,
+        content=assistant_content,
+        artifact=artifact,
+    )
+    return assistant_content
+
+
+async def async_apply_ai_draft_to_report(report, prompt, user=None):
+    history = await sync_to_async(
+        lambda: list(report.chat_messages.order_by("created_at")[:12]),
+        thread_sensitive=True,
+    )()
+    try:
+        assistant_content, artifact = await async_generate_report_chat_response(
+            report,
+            prompt,
+            history=history,
+            user=user,
+        )
+        await sync_to_async(apply_report_artifact, thread_sensitive=True)(
+            report,
+            artifact,
+        )
+    except ReportGenerationError as exc:
+        assistant_content = f"I could not update the report: {exc}"
+        artifact = {}
+    await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
         report=report,
         role=ReportChatMessage.Role.ASSISTANT,
         content=assistant_content,
@@ -514,31 +561,34 @@ def report_share_options(request, report_id):
 
 @login_required
 @require_POST
-def report_chat_send(request, report_id):
-    report, _membership = get_editable_report_for_user(request.user, report_id)
-    form = ReportChatForm(request.POST)
+async def report_chat_send(request, report_id):
+    user = await request.auser()
+    report, _membership = await sync_to_async(
+        get_editable_report_for_user,
+        thread_sensitive=True,
+    )(user, report_id)
+    post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
+    form = ReportChatForm(post_data)
     if form.is_valid():
         prompt = form.cleaned_data["message"]
-        ReportChatMessage.objects.create(
+        await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
             report=report,
-            user=request.user,
+            user=user,
             role=ReportChatMessage.Role.USER,
             content=prompt,
         )
         try:
-            apply_ai_draft_to_report(report, prompt, user=request.user)
+            await async_apply_ai_draft_to_report(report, prompt, user=user)
         except ReportGenerationError as exc:
-            ReportChatMessage.objects.create(
+            await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
                 report=report,
                 role=ReportChatMessage.Role.ASSISTANT,
                 content=f"I could not update the report: {exc}",
             )
-    response = render(
+    response = await sync_to_async(render, thread_sensitive=True)(
         request,
         "core/partials/report_chat_messages.html",
-        {
-            "report": report,
-        },
+        {"report": report},
     )
     response["HX-Trigger"] = "report-chat-updated"
     return response
@@ -558,30 +608,42 @@ def strip_report_artifacts_for_stream(content):
 
 @login_required
 @require_POST
-def report_chat_stream(request, report_id):
-    report, _membership = get_editable_report_for_user(request.user, report_id)
-    form = ReportChatForm(request.POST)
+async def report_chat_stream(request, report_id):
+    user = await request.auser()
+    report, _membership = await sync_to_async(
+        get_editable_report_for_user,
+        thread_sensitive=True,
+    )(user, report_id)
+    post_data = await sync_to_async(lambda: request.POST.copy(), thread_sensitive=True)()
+    form = ReportChatForm(post_data)
     if not form.is_valid():
         return JsonResponse({"error": "Message is required."}, status=400)
 
     prompt = form.cleaned_data["message"]
-    ReportChatMessage.objects.create(
+    await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
         report=report,
-        user=request.user,
+        user=user,
         role=ReportChatMessage.Role.USER,
         content=prompt,
     )
 
-    def event_stream():
+    async def event_stream():
         full_content = ""
         sent_visible_content = ""
         final_payload = None
+        artifact_status_sent = False
+        yield sse_event("status", {"message": "Preparing database context..."})
         try:
-            for event, payload in stream_report_chat_response(
+            history = await sync_to_async(
+                lambda: list(report.chat_messages.order_by("created_at")[:12]),
+                thread_sensitive=True,
+            )()
+            yield sse_event("status", {"message": "Asking the model..."})
+            async for event, payload in async_stream_report_chat_response(
                 report,
                 prompt,
-                history=report.chat_messages.order_by("created_at")[:12],
-                user=request.user,
+                history=history,
+                user=user,
             ):
                 if event == "delta":
                     full_content += payload
@@ -590,11 +652,17 @@ def report_chat_stream(request, report_id):
                     sent_visible_content = visible_content
                     if delta:
                         yield sse_event("delta", {"text": delta})
+                    elif (
+                        not artifact_status_sent
+                        and REPORT_ARTIFACT_MARKER_RE.search(full_content)
+                    ):
+                        artifact_status_sent = True
+                        yield sse_event("status", {"message": "Writing report changes..."})
                 elif event == "done":
                     final_payload = payload
         except ReportGenerationError as exc:
             message = f"I could not update the report: {exc}"
-            ReportChatMessage.objects.create(
+            await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
                 report=report,
                 role=ReportChatMessage.Role.ASSISTANT,
                 content=message,
@@ -604,8 +672,13 @@ def report_chat_stream(request, report_id):
 
         content = (final_payload or {}).get("content") or full_content.strip()
         artifact = (final_payload or {}).get("artifact") or {}
-        report_updated = apply_report_artifact(report, artifact)
-        ReportChatMessage.objects.create(
+        report_updated = await sync_to_async(apply_report_artifact, thread_sensitive=True)(
+            report,
+            artifact,
+        )
+        if report_updated:
+            await sync_to_async(report.refresh_from_db, thread_sensitive=True)()
+        await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
             report=report,
             role=ReportChatMessage.Role.ASSISTANT,
             content=content,
@@ -624,6 +697,7 @@ def report_chat_stream(request, report_id):
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
     return response
 
 
@@ -722,19 +796,27 @@ def report_preview(request, report_id):
 
 @login_required
 @require_POST
-def report_preview_error(request, report_id):
-    report, membership = get_editable_report_for_user(request.user, report_id)
+async def report_preview_error(request, report_id):
+    user = await request.auser()
+    report, membership = await sync_to_async(
+        get_editable_report_for_user,
+        thread_sensitive=True,
+    )(user, report_id)
     if report.status != Report.Status.DRAFT:
         return JsonResponse({"repaired": False, "message": "Preview error logged for a published report."})
 
     try:
-        error_payload = json.loads(request.body.decode("utf-8") or "{}")
+        body = await sync_to_async(lambda: request.body, thread_sensitive=True)()
+        error_payload = json.loads(body.decode("utf-8") or "{}")
     except json.JSONDecodeError:
         error_payload = {"message": "Preview reported an invalid error payload."}
 
-    attempt_count = browser_preview_error_count_since_last_user_message(report) + 1
+    attempt_count = await sync_to_async(
+        browser_preview_error_count_since_last_user_message,
+        thread_sensitive=True,
+    )(report) + 1
     error_message = build_browser_error_message(error_payload, attempt_count)
-    ReportChatMessage.objects.create(
+    await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
         report=report,
         role=ReportChatMessage.Role.ASSISTANT,
         content=error_message,
@@ -750,7 +832,7 @@ def report_preview_error(request, report_id):
             "The preview has failed four times in a row, so I stopped auto-repair "
             "to avoid burning tokens. Send a new chat message when you want me to try again."
         )
-        ReportChatMessage.objects.create(
+        await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
             report=report,
             role=ReportChatMessage.Role.ASSISTANT,
             content=give_up_message,
@@ -766,14 +848,14 @@ def report_preview_error(request, report_id):
 
     repair_prompt = build_browser_error_repair_prompt(error_payload)
     try:
-        assistant_content = apply_ai_draft_to_report(
+        assistant_content = await async_apply_ai_draft_to_report(
             report,
             repair_prompt,
-            user=request.user,
+            user=user,
         )
     except ReportGenerationError as exc:
         assistant_content = f"I could not auto-repair the preview error: {exc}"
-        ReportChatMessage.objects.create(
+        await sync_to_async(ReportChatMessage.objects.create, thread_sensitive=True)(
             report=report,
             role=ReportChatMessage.Role.ASSISTANT,
             content=assistant_content,
@@ -796,14 +878,18 @@ def report_preview_error(request, report_id):
 
 
 @login_required
-def report_primary_dataset(request, report_id):
-    report, _membership = get_report_for_user(request.user, report_id)
+async def report_primary_dataset(request, report_id):
+    user = await request.auser()
+    report, _membership = await sync_to_async(
+        get_report_for_user,
+        thread_sensitive=True,
+    )(user, report_id)
     if not report.primary_sql.strip():
         return JsonResponse({"error": "This report does not have a primary SQL query."}, status=400)
     if not report.database_connection:
         return JsonResponse({"error": "This report does not have a selected database connection."}, status=400)
     try:
-        payload, cache_hit = get_report_dataset(report, user=request.user)
+        payload, cache_hit = await async_get_report_dataset(report, user=user)
     except (QueryExecutionError, ReportCacheError) as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     payload["cache_hit"] = cache_hit
@@ -1025,7 +1111,7 @@ def settings_database_connection_test(request, connection_id):
         organization=organization,
     )
 
-    result = test_sqlalchemy_connection(database_connection.get_connection_string())
+    result = test_database_connection(database_connection)
     database_connection.last_tested_at = timezone.now()
     database_connection.last_test_succeeded = result.succeeded
     database_connection.last_test_error = "" if result.succeeded else result.message[:2000]

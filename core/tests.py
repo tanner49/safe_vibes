@@ -1,10 +1,13 @@
+import json
 import os
 import sqlite3
 import sys
 import tempfile
 import types
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+from asgiref.sync import async_to_sync
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -18,10 +21,23 @@ from .ai_provider_models import (
     CURATED_OPENAI_MODELS,
     sync_provider_models,
 )
-from .database_connections import redact_connection_error
+from .database_connections import (
+    build_bigquery_connection_string,
+    build_snowflake_connection_string,
+    parse_connection_config,
+    redact_connection_error,
+)
 from .demo_database import demo_database_connection_string
 from .ai_clients import AIMessage, generate_openai_text, provider_error_message, stream_openai_text
-from .query_execution import QueryPolicyError, execute_query
+from .query_execution import (
+    QueryExecutionError,
+    QueryExecutionResult,
+    QueryPolicyError,
+    async_execute_query,
+    async_sqlalchemy_connection_string,
+    execute_query,
+)
+from . import report_cache
 from .report_generation import ReportGenerationError
 from .forms import AIProviderKeyCreateForm, DatabaseConnectionCreateForm
 from .models import (
@@ -652,6 +668,78 @@ class DatabaseConnectionSettingsTests(TestCase):
             raw_connection_string,
         )
 
+    def test_company_admin_can_add_bigquery_connection(self):
+        admin = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=admin,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(admin)
+        service_account = {
+            "type": "service_account",
+            "client_email": "reports@example.iam.gserviceaccount.com",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+
+        response = self.client.post(
+            reverse("core:settings_database_connection_add"),
+            {
+                "name": "BigQuery Warehouse",
+                "provider": DatabaseConnection.Provider.BIGQUERY,
+                "bigquery_project": "analytics-prod",
+                "bigquery_dataset": "sales",
+                "bigquery_location": "US",
+                "bigquery_service_account_json": json.dumps(service_account),
+                "enabled": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        database_connection = DatabaseConnection.objects.get(name="BigQuery Warehouse")
+        connection_config = parse_connection_config(database_connection.get_connection_string())
+        self.assertEqual(connection_config["provider"], "bigquery")
+        self.assertEqual(connection_config["config"]["project_id"], "analytics-prod")
+        self.assertIn("bigquery://analytics-prod/sales", database_connection.connection_string_preview)
+        self.assertNotIn("PRIVATE KEY", database_connection.connection_string_preview)
+
+    def test_company_admin_can_add_snowflake_token_connection(self):
+        admin = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=admin,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            reverse("core:settings_database_connection_add"),
+            {
+                "name": "Snowflake Warehouse",
+                "provider": DatabaseConnection.Provider.SNOWFLAKE,
+                "snowflake_account": "acme-prod",
+                "snowflake_username": "REPORT_USER",
+                "snowflake_auth_type": "programmatic_access_token",
+                "snowflake_password": "pat-secret",
+                "snowflake_database": "ANALYTICS",
+                "snowflake_schema": "SALES",
+                "snowflake_warehouse": "REPORTING_WH",
+                "snowflake_role": "REPORT_READER",
+                "enabled": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        database_connection = DatabaseConnection.objects.get(name="Snowflake Warehouse")
+        connection_config = parse_connection_config(database_connection.get_connection_string())
+        self.assertEqual(connection_config["provider"], "snowflake")
+        self.assertEqual(connection_config["config"]["auth_type"], "programmatic_access_token")
+        self.assertIn("snowflake://acme-prod/ANALYTICS.SALES", database_connection.connection_string_preview)
+        self.assertNotIn("pat-secret", database_connection.connection_string_preview)
+
     def test_database_connection_add_page_renders_guided_provider_fields(self):
         admin = create_user("admin@example.com")
         organization = Organization.objects.create(name="Internal Test Org")
@@ -669,6 +757,7 @@ class DatabaseConnectionSettingsTests(TestCase):
         self.assertContains(response, 'data-provider-fields="custom"')
         self.assertContains(response, 'id="id_db_username"')
         self.assertContains(response, 'id="id_snowflake_username"')
+        self.assertContains(response, 'id="id_bigquery_service_account_json"')
         self.assertNotContains(response, "SQLAlchemy connection string")
 
     def test_database_connection_pages_never_show_raw_connection_string(self):
@@ -979,6 +1068,120 @@ class QueryExecutionServiceTests(TestCase):
 
         self.assertEqual(result.rows, [{"deal_count": 3}])
 
+    def test_async_execute_query_returns_rows(self):
+        result = async_to_sync(async_execute_query)(
+            self.database_connection,
+            "select count(*) as deal_count from deals",
+            user=self.user,
+        )
+
+        self.assertEqual(result.rows, [{"deal_count": 3}])
+
+    def test_sqlite_connection_string_is_converted_to_async_driver(self):
+        self.assertEqual(
+            async_sqlalchemy_connection_string("sqlite:///demo.sqlite3"),
+            "sqlite+aiosqlite:///demo.sqlite3",
+        )
+
+    def test_postgres_connection_string_is_converted_to_async_driver(self):
+        converted = async_sqlalchemy_connection_string(
+            "postgresql+psycopg://readonly:secret@db.example.com:5432/sales?sslmode=require"
+        )
+
+        self.assertTrue(converted.startswith("postgresql+asyncpg://readonly:secret@db.example.com:5432/sales"))
+        self.assertIn("ssl=require", converted)
+
+    def test_custom_sync_driver_is_rejected_for_async_execution(self):
+        with self.assertRaises(QueryExecutionError):
+            async_sqlalchemy_connection_string("mysql+pymysql://user:pass@db/sales")
+
+    def test_bigquery_execution_dispatches_to_async_adapter(self):
+        database_connection = DatabaseConnection(
+            organization=self.organization,
+            name="BigQuery Query Test",
+            provider=DatabaseConnection.Provider.BIGQUERY,
+        )
+        database_connection.set_connection_string(
+            build_bigquery_connection_string(
+                "analytics-prod",
+                "sales",
+                json.dumps(
+                    {
+                        "client_email": "reports@example.iam.gserviceaccount.com",
+                        "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    }
+                ),
+                "US",
+            ),
+            "bigquery://analytics-prod/sales",
+        )
+        database_connection.save()
+        expected_result = QueryExecutionResult(
+            columns=["answer"],
+            rows=[{"answer": "1"}],
+            row_count=1,
+            raw_bytes=40,
+            duration_ms=12,
+        )
+
+        with patch(
+            "core.warehouse_adapters.async_execute_bigquery_query",
+            new_callable=AsyncMock,
+        ) as execute_bigquery:
+            execute_bigquery.return_value = expected_result
+            result = async_to_sync(async_execute_query)(
+                database_connection,
+                "select 1 as answer",
+                user=self.user,
+            )
+
+        self.assertEqual(result, expected_result)
+        execute_bigquery.assert_awaited_once()
+        self.assertTrue(QueryExecutionLog.objects.latest("id").succeeded)
+
+    def test_snowflake_execution_dispatches_to_async_adapter(self):
+        database_connection = DatabaseConnection(
+            organization=self.organization,
+            name="Snowflake Query Test",
+            provider=DatabaseConnection.Provider.SNOWFLAKE,
+        )
+        database_connection.set_connection_string(
+            build_snowflake_connection_string(
+                "acme-prod",
+                "REPORT_USER",
+                "pat-secret",
+                "ANALYTICS",
+                "SALES",
+                "REPORTING_WH",
+                "REPORT_READER",
+            ),
+            "snowflake://acme-prod/ANALYTICS.SALES",
+        )
+        database_connection.save()
+        expected_result = QueryExecutionResult(
+            columns=["ANSWER"],
+            rows=[{"ANSWER": "1"}],
+            row_count=1,
+            raw_bytes=40,
+            duration_ms=12,
+        )
+
+        with patch(
+            "core.warehouse_adapters.async_execute_snowflake_query",
+            new_callable=AsyncMock,
+        ) as execute_snowflake:
+            execute_snowflake.return_value = expected_result
+            result = async_to_sync(async_execute_query)(
+                database_connection,
+                "select 1 as answer",
+                user=self.user,
+            )
+
+        self.assertEqual(result, expected_result)
+        execute_snowflake.assert_awaited_once()
+        self.assertTrue(QueryExecutionLog.objects.latest("id").succeeded)
+
 
 class ReportBuilderTests(TestCase):
     def setUp(self):
@@ -1093,7 +1296,10 @@ class ReportBuilderTests(TestCase):
         uploaded_sql = "select stage, amount from pipeline"
         uploaded_html = "<h1>Old Pipeline</h1><script>console.log('old')</script>"
 
-        with patch("core.views.generate_report_chat_response") as chat_response:
+        with patch(
+            "core.views.async_generate_report_chat_response",
+            new_callable=AsyncMock,
+        ) as chat_response:
             chat_response.return_value = (
                 "I adapted the imported report.",
                 {
@@ -1571,6 +1777,36 @@ class ReportBuilderTests(TestCase):
         self.assertFalse(ReportDatasetCache.objects.filter(id=cache.id).exists())
         self.assertFalse(ReportDatasetCacheLock.objects.filter(cache_key=cache.cache_key).exists())
 
+    def test_every_tenth_cache_hit_schedules_expired_cache_cleanup(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+        self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        cache = ReportDatasetCache.objects.get(report=report)
+        report_cache._cache_hit_counter = 0
+
+        with patch("core.report_cache.schedule_expired_cache_cleanup") as schedule_cleanup:
+            for _index in range(9):
+                report_cache.log_cache_hit(cache, user=self.creator)
+            self.assertEqual(schedule_cleanup.call_count, 0)
+
+            report_cache.log_cache_hit(cache, user=self.creator)
+
+        self.assertEqual(schedule_cleanup.call_count, 1)
+        report_cache._cache_hit_counter = 0
+
+    def test_async_expired_cache_cleanup_deletes_expired_caches(self):
+        report = self.create_report()
+        self.client.force_login(self.creator)
+        self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        cache = ReportDatasetCache.objects.get(report=report)
+        cache.expires_at = timezone.now() - timezone.timedelta(seconds=1)
+        cache.save(update_fields=["expires_at"])
+
+        report_cache.run_expired_cache_cleanup()
+
+        self.assertFalse(ReportDatasetCache.objects.filter(id=cache.id).exists())
+        self.assertFalse(ReportDatasetCacheLock.objects.filter(cache_key=cache.cache_key).exists())
+
     def test_report_dataset_cache_error_still_logs_query_attempt(self):
         report = self.create_report()
         self.organization.max_compressed_bytes = 1
@@ -1616,7 +1852,10 @@ class ReportBuilderTests(TestCase):
         report = self.create_report()
         self.client.force_login(self.creator)
 
-        with patch("core.views.generate_report_chat_response") as chat_response:
+        with patch(
+            "core.views.async_generate_report_chat_response",
+            new_callable=AsyncMock,
+        ) as chat_response:
             chat_response.return_value = (
                 "Updated the report.",
                 {
@@ -1661,7 +1900,10 @@ class ReportBuilderTests(TestCase):
         report = self.create_report()
         self.client.force_login(self.creator)
 
-        with patch("core.views.generate_report_chat_response") as chat_response:
+        with patch(
+            "core.views.async_generate_report_chat_response",
+            new_callable=AsyncMock,
+        ) as chat_response:
             chat_response.return_value = (
                 "I fixed the preview error.",
                 {
@@ -1712,7 +1954,10 @@ class ReportBuilderTests(TestCase):
             )
         self.client.force_login(self.creator)
 
-        with patch("core.views.generate_report_chat_response") as chat_response:
+        with patch(
+            "core.views.async_generate_report_chat_response",
+            new_callable=AsyncMock,
+        ) as chat_response:
             response = self.client.post(
                 reverse("core:report_preview_error", args=[report.id]),
                 data='{"message":"Still broken","context":"window.error"}',
@@ -1776,6 +2021,36 @@ class ReportBuilderTests(TestCase):
         self.assertContains(response, 'id="id_ai_model_name"')
         self.assertContains(response, "provider-model-choices")
         self.assertContains(response, "Use this model")
+        self.assertContains(response, 'class="model-picker"')
+        self.assertContains(response, "selected-model-summary")
+
+    def test_report_builder_model_selector_uses_admin_default_for_stale_report_model(self):
+        report = self.create_report()
+        report.ai_model_name = "old-model"
+        report.save(update_fields=["ai_model_name"])
+        self.provider_key.model_name = "gpt-5.5"
+        self.provider_key.save(update_fields=["model_name"])
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.4-mini",
+            display_name="GPT-5.4 mini",
+            allowed=True,
+            available=True,
+        )
+        AIProviderModel.objects.create(
+            provider_key=self.provider_key,
+            provider_model_id="gpt-5.5",
+            display_name="GPT-5.5",
+            allowed=True,
+            available=True,
+        )
+        self.client.force_login(self.creator)
+
+        response = self.client.get(reverse("core:report_builder", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<option value="gpt-5.5" selected>GPT-5.5</option>', html=True)
+        self.assertContains(response, '"default_model": "gpt-5.5"')
 
     def test_creator_can_update_report_ai_model(self):
         report = self.create_report()
@@ -1865,7 +2140,10 @@ class ReportBuilderTests(TestCase):
         original_sql = report.primary_sql
         self.client.force_login(self.creator)
 
-        with patch("core.views.generate_report_chat_response") as chat_response:
+        with patch(
+            "core.views.async_generate_report_chat_response",
+            new_callable=AsyncMock,
+        ) as chat_response:
             chat_response.return_value = ("Yes, I can help with that.", {})
             response = self.client.post(
                 reverse("core:report_chat_send", args=[report.id]),
@@ -1888,7 +2166,10 @@ class ReportBuilderTests(TestCase):
         report = self.create_report()
         self.client.force_login(self.creator)
 
-        with patch("core.report_generation.generate_text") as generate_text:
+        with patch(
+            "core.report_generation.async_generate_text",
+            new_callable=AsyncMock,
+        ) as generate_text:
             generate_text.return_value.content = "No report change."
             response = self.client.post(
                 reverse("core:report_chat_send", args=[report.id]),
@@ -1903,7 +2184,7 @@ class ReportBuilderTests(TestCase):
         report = self.create_report()
         self.client.force_login(self.creator)
 
-        def fake_stream(*_args, **_kwargs):
+        async def fake_stream(*_args, **_kwargs):
             yield "delta", "Done"
             yield "done", {
                 "content": "Done",
@@ -1917,15 +2198,23 @@ class ReportBuilderTests(TestCase):
                 "title": "Streamed Pipeline",
             }
 
-        with patch("core.views.stream_report_chat_response", side_effect=fake_stream):
+        async def collect_streaming_content(streaming_content):
+            chunks = []
+            async for chunk in streaming_content:
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        with patch("core.views.async_stream_report_chat_response", side_effect=fake_stream):
             response = self.client.post(
                 reverse("core:report_chat_stream", args=[report.id]),
                 {"message": "Build it"},
             )
-            body = b"".join(response.streaming_content).decode()
+            body = async_to_sync(collect_streaming_content)(response.streaming_content).decode()
 
         report.refresh_from_db()
         self.assertEqual(response.status_code, 200)
+        self.assertIn("event: status", body)
+        self.assertIn("Preparing database context", body)
         self.assertIn("event: delta", body)
         self.assertIn("event: done", body)
         self.assertEqual(report.title, "Streamed Pipeline")

@@ -135,14 +135,31 @@
                       {{ form.snowflake_username.errors }}
                     </div>
                     <div class="col-md-6">
-                      <label class="form-label" for="{{ form.snowflake_password.id_for_label }}">Password</label>
+                      <label class="form-label" for="{{ form.snowflake_auth_type.id_for_label }}">Authentication</label>
+                      {{ form.snowflake_auth_type }}
+                      {{ form.snowflake_auth_type.errors }}
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.snowflake_password.id_for_label }}">Token</label>
                       {{ form.snowflake_password }}
+                      <div class="form-text">{{ form.snowflake_password.help_text }}</div>
                       {{ form.snowflake_password.errors }}
                     </div>
                     <div class="col-md-6">
                       <label class="form-label" for="{{ form.snowflake_role.id_for_label }}">Role</label>
                       {{ form.snowflake_role }}
                       {{ form.snowflake_role.errors }}
+                    </div>
+                    <div class="col-md-8">
+                      <label class="form-label" for="{{ form.snowflake_private_key.id_for_label }}">Private key</label>
+                      {{ form.snowflake_private_key }}
+                      <div class="form-text">{{ form.snowflake_private_key.help_text }}</div>
+                      {{ form.snowflake_private_key.errors }}
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label" for="{{ form.snowflake_private_key_passphrase.id_for_label }}">Private key passphrase</label>
+                      {{ form.snowflake_private_key_passphrase }}
+                      {{ form.snowflake_private_key_passphrase.errors }}
                     </div>
                   </div>
                 </div>
@@ -160,11 +177,17 @@
                       {{ form.bigquery_dataset }}
                       {{ form.bigquery_dataset.errors }}
                     </div>
+                    <div class="col-md-6">
+                      <label class="form-label" for="{{ form.bigquery_location.id_for_label }}">Location</label>
+                      {{ form.bigquery_location }}
+                      <div class="form-text">{{ form.bigquery_location.help_text }}</div>
+                      {{ form.bigquery_location.errors }}
+                    </div>
                     <div class="col-12">
-                      <label class="form-label" for="{{ form.bigquery_credentials_path.id_for_label }}">Service account JSON path</label>
-                      {{ form.bigquery_credentials_path }}
-                      <div class="form-text">{{ form.bigquery_credentials_path.help_text }}</div>
-                      {{ form.bigquery_credentials_path.errors }}
+                      <label class="form-label" for="{{ form.bigquery_service_account_json.id_for_label }}">Service account JSON</label>
+                      {{ form.bigquery_service_account_json }}
+                      <div class="form-text">{{ form.bigquery_service_account_json.help_text }}</div>
+                      {{ form.bigquery_service_account_json.errors }}
                     </div>
                   </div>
                 </div>

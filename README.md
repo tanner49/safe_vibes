@@ -14,8 +14,6 @@ Copy `.env.example` to `.env` when you want to override local settings.
 
 The app defaults to SQLite for local development. Set `DATABASE_URL` to use Postgres.
 
-Optional warehouse drivers live in `requirements-db-drivers.txt` so the core Django app can stay easy to install while Snowflake and BigQuery dependencies evolve independently.
-
 ## Bundled Demo Data
 
 The repo includes a small read-only SQLite demo warehouse at
@@ -76,11 +74,23 @@ If an organization has `sso_required` enabled, normal password login is blocked 
 
 The app is prepared for Heroku with:
 
-- `Procfile` web process: `gunicorn config.wsgi:application`
+- `Procfile` web process: `gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker`
 - `Procfile` release process: `python manage.py migrate && python manage.py ensure_demo_database`
 - `.python-version` set to Python `3.12`
 - `DATABASE_URL` support through `dj-database-url`
 - WhiteNoise static file serving
+
+AI streaming uses async provider SDKs under ASGI. Gunicorn manages Uvicorn ASGI
+workers. Postgres and SQLite report queries use SQLAlchemy async drivers
+(`asyncpg` and `aiosqlite`) so slow queries do not block the event loop. BigQuery
+report queries use the REST `jobs.query` flow with async polling. Snowflake
+report queries use the Snowflake SQL API with async statement polling and result
+partition fetching.
+
+For BigQuery, add a database connection with a read-only service account JSON key
+and optional job location. For Snowflake, add a database connection with a
+programmatic access token, OAuth token, or key-pair JWT credentials. The
+credentials are encrypted and only a redacted provider preview is shown.
 
 Recommended setup:
 
@@ -93,6 +103,8 @@ heroku config:set DJANGO_SECRET_KEY="replace-with-a-long-random-secret" --app yo
 heroku config:set SECRET_ENCRYPTION_KEY="replace-with-a-fernet-key" --app your-app-name
 heroku config:set DJANGO_ALLOWED_HOSTS="your-app-name.herokuapp.com" --app your-app-name
 heroku config:set ENABLE_DEMO_DATABASE_CONNECTION=true --app your-app-name
+heroku config:set WEB_CONCURRENCY=2 --app your-app-name
+heroku config:set WEB_TIMEOUT=180 --app your-app-name
 ```
 
 Generate a Fernet key for `SECRET_ENCRYPTION_KEY`:

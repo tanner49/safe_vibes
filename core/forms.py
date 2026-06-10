@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
@@ -284,8 +286,39 @@ class DatabaseConnectionFormMixin(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={"class": "form-control"}),
     )
+    snowflake_auth_type = forms.ChoiceField(
+        label="Authentication",
+        required=False,
+        choices=[
+            ("programmatic_access_token", "Programmatic access token"),
+            ("oauth", "OAuth token"),
+            ("key_pair", "Key pair JWT"),
+        ],
+        initial="programmatic_access_token",
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
     snowflake_password = forms.CharField(
-        label="Password",
+        label="Token",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control"}),
+        help_text="Use a programmatic access token or OAuth token. Password auth is not used by the Snowflake SQL API.",
+    )
+    snowflake_private_key = forms.CharField(
+        label="Private key",
+        required=False,
+        strip=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 5,
+                "placeholder": "-----BEGIN PRIVATE KEY-----",
+            }
+        ),
+        help_text="Only needed for key pair JWT authentication.",
+    )
+    snowflake_private_key_passphrase = forms.CharField(
+        label="Private key passphrase",
         required=False,
         strip=False,
         widget=forms.PasswordInput(attrs={"class": "form-control"}),
@@ -320,11 +353,24 @@ class DatabaseConnectionFormMixin(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={"class": "form-control"}),
     )
-    bigquery_credentials_path = forms.CharField(
-        label="Service account JSON path",
+    bigquery_location = forms.CharField(
+        label="Location",
         required=False,
         widget=forms.TextInput(attrs={"class": "form-control"}),
-        help_text="Path on the server/container where the service account JSON is mounted.",
+        help_text="Optional BigQuery job location, for example US or us-central1.",
+    )
+    bigquery_service_account_json = forms.CharField(
+        label="Service account JSON",
+        required=False,
+        strip=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control font-monospace",
+                "rows": 6,
+                "placeholder": '{"type":"service_account", ...}',
+            }
+        ),
+        help_text="Paste a read-only service account JSON key. It is encrypted and never shown again.",
     )
 
     provider_field_names = {
@@ -338,12 +384,12 @@ class DatabaseConnectionFormMixin(forms.Form):
         DatabaseConnection.Provider.SNOWFLAKE: [
             "snowflake_account",
             "snowflake_username",
-            "snowflake_password",
             "snowflake_database",
         ],
         DatabaseConnection.Provider.BIGQUERY: [
             "bigquery_project",
             "bigquery_dataset",
+            "bigquery_service_account_json",
         ],
         DatabaseConnection.Provider.SQLITE: ["sqlite_path"],
         DatabaseConnection.Provider.CUSTOM: ["connection_string"],
@@ -382,6 +428,13 @@ class DatabaseConnectionFormMixin(forms.Form):
                 self.cleaned_data.get("postgres_sslmode"),
             )
         if provider == DatabaseConnection.Provider.SNOWFLAKE:
+            auth_type = self.cleaned_data.get("snowflake_auth_type") or "programmatic_access_token"
+            if auth_type in {"programmatic_access_token", "oauth"} and not self.cleaned_data.get("snowflake_password"):
+                self.add_error("snowflake_password", "This field is required for token authentication.")
+                return ""
+            if auth_type == "key_pair" and not self.cleaned_data.get("snowflake_private_key"):
+                self.add_error("snowflake_private_key", "This field is required for key pair authentication.")
+                return ""
             return build_snowflake_connection_string(
                 self.cleaned_data["snowflake_account"],
                 self.cleaned_data["snowflake_username"],
@@ -390,12 +443,30 @@ class DatabaseConnectionFormMixin(forms.Form):
                 self.cleaned_data.get("snowflake_schema"),
                 self.cleaned_data.get("snowflake_warehouse"),
                 self.cleaned_data.get("snowflake_role"),
+                auth_type=auth_type,
+                private_key=self.cleaned_data.get("snowflake_private_key"),
+                private_key_passphrase=self.cleaned_data.get("snowflake_private_key_passphrase"),
             )
         if provider == DatabaseConnection.Provider.BIGQUERY:
+            service_account_json = self.cleaned_data.get("bigquery_service_account_json")
+            try:
+                parsed_service_account = json.loads(service_account_json)
+            except (TypeError, json.JSONDecodeError):
+                self.add_error("bigquery_service_account_json", "Paste a valid service account JSON key.")
+                return ""
+            required_keys = {"client_email", "private_key", "token_uri"}
+            missing_keys = sorted(required_keys - set(parsed_service_account))
+            if missing_keys:
+                self.add_error(
+                    "bigquery_service_account_json",
+                    f"Service account JSON is missing: {', '.join(missing_keys)}.",
+                )
+                return ""
             return build_bigquery_connection_string(
                 self.cleaned_data["bigquery_project"],
                 self.cleaned_data["bigquery_dataset"],
-                self.cleaned_data.get("bigquery_credentials_path"),
+                json.dumps(parsed_service_account, separators=(",", ":")),
+                self.cleaned_data.get("bigquery_location"),
             )
         if provider == DatabaseConnection.Provider.SQLITE:
             return build_sqlite_connection_string(self.cleaned_data["sqlite_path"])
@@ -474,10 +545,15 @@ class DatabaseConnectionUpdateForm(DatabaseConnectionFormMixin, forms.ModelForm)
         provider = self.cleaned_data.get("provider")
         field_names = self.provider_field_names.get(provider, [])
         optional_field_names = [
+            "snowflake_auth_type",
+            "snowflake_password",
+            "snowflake_private_key",
+            "snowflake_private_key_passphrase",
             "snowflake_schema",
             "snowflake_warehouse",
             "snowflake_role",
-            "bigquery_credentials_path",
+            "bigquery_location",
+            "bigquery_service_account_json",
         ]
         return any(
             self.cleaned_data.get(field_name)
@@ -685,6 +761,9 @@ class ReportAIModelForm(forms.ModelForm):
         self.fields["ai_provider_key"].required = True
         selected_key = self._selected_provider_key(provider_keys)
         self.fields["ai_model_name"].choices = self._model_choices(selected_key)
+        if selected_key and not self.is_bound:
+            self.initial["ai_provider_key"] = selected_key
+            self.initial["ai_model_name"] = self._selected_model_name(selected_key)
 
     def _selected_provider_key(self, provider_keys):
         selected_id = self.data.get("ai_provider_key") if self.is_bound else None
@@ -710,6 +789,18 @@ class ReportAIModelForm(forms.ModelForm):
         if choices:
             return choices
         return get_curated_model_choices(provider_key.provider)
+
+    def _selected_model_name(self, provider_key):
+        allowed_models = {model_id for model_id, _name in self._model_choices(provider_key)}
+        if (
+            self.instance
+            and self.instance.ai_provider_key_id == provider_key.id
+            and self.instance.ai_model_name in allowed_models
+        ):
+            return self.instance.ai_model_name
+        if provider_key.model_name in allowed_models:
+            return provider_key.model_name
+        return next(iter(allowed_models), "")
 
     def clean_ai_model_name(self):
         model_name = self.cleaned_data["ai_model_name"]

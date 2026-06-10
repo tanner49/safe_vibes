@@ -6,17 +6,26 @@ from datetime import date, datetime, time as datetime_time
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import create_engine, text
+from asgiref.sync import async_to_sync, sync_to_async
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from .database_connections import redact_connection_error
-from .models import QueryExecutionLog
+from .models import DatabaseConnection, QueryExecutionLog
 
 
 DISALLOWED_SQL_KEYWORDS = re.compile(
     r"\b(alter|call|copy|create|delete|drop|grant|insert|merge|revoke|truncate|update)\b",
     re.IGNORECASE,
 )
+
+ASYNC_SQLALCHEMY_DRIVERS = {
+    "postgresql+asyncpg",
+    "postgresql+psycopg",
+    "sqlite+aiosqlite",
+}
 
 
 class QueryExecutionError(Exception):
@@ -77,9 +86,16 @@ def validate_read_only_sql(sql):
 
 
 def execute_query(database_connection, sql, user=None):
-    organization = database_connection.organization
+    return async_to_sync(async_execute_query)(database_connection, sql, user=user)
+
+
+async def async_execute_query(database_connection, sql, user=None):
+    organization = await sync_to_async(
+        lambda: database_connection.organization,
+        thread_sensitive=True,
+    )()
     started = time.monotonic()
-    log = QueryExecutionLog.objects.create(
+    log = await sync_to_async(QueryExecutionLog.objects.create, thread_sensitive=True)(
         organization=organization,
         database_connection=database_connection,
         user=user if user and user.is_authenticated else None,
@@ -88,13 +104,13 @@ def execute_query(database_connection, sql, user=None):
     )
 
     try:
-        result = _execute_query(database_connection, sql)
+        result = await _async_execute_query(database_connection, sql, organization)
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
         log.succeeded = False
         log.duration_ms = duration_ms
         log.error_message = str(exc)[:2000]
-        log.save(
+        await sync_to_async(log.save, thread_sensitive=True)(
             update_fields=[
                 "succeeded",
                 "duration_ms",
@@ -107,7 +123,7 @@ def execute_query(database_connection, sql, user=None):
     log.row_count = result.row_count
     log.raw_bytes = result.raw_bytes
     log.duration_ms = result.duration_ms
-    log.save(
+    await sync_to_async(log.save, thread_sensitive=True)(
         update_fields=[
             "succeeded",
             "row_count",
@@ -118,20 +134,33 @@ def execute_query(database_connection, sql, user=None):
     return result
 
 
-def _execute_query(database_connection, sql):
-    organization = database_connection.organization
+async def _async_execute_query(database_connection, sql, organization):
     if not database_connection.enabled:
         raise QueryPolicyError("This database connection is disabled.")
     validate_read_only_sql(sql)
 
+    if database_connection.provider == DatabaseConnection.Provider.SNOWFLAKE:
+        from .warehouse_adapters import async_execute_snowflake_query
+
+        return await async_execute_snowflake_query(database_connection, sql, organization)
+    if database_connection.provider == DatabaseConnection.Provider.BIGQUERY:
+        from .warehouse_adapters import async_execute_bigquery_query
+
+        return await async_execute_bigquery_query(database_connection, sql, organization)
+
     connection_string = database_connection.get_connection_string()
+    async_connection_string = async_sqlalchemy_connection_string(connection_string)
     engine = None
     started = time.monotonic()
     try:
-        engine = create_engine(connection_string, pool_pre_ping=True)
-        with engine.connect() as connection:
-            apply_connection_timeout(connection, database_connection.provider, organization)
-            result = connection.execute(text(sql))
+        engine = create_async_engine(async_connection_string, pool_pre_ping=True)
+        async with engine.connect() as connection:
+            await apply_connection_timeout(
+                connection,
+                database_connection.provider,
+                organization,
+            )
+            result = await connection.execute(text(sql))
             rows = result.mappings().fetchmany(organization.max_rows + 1)
             if len(rows) > organization.max_rows:
                 raise QueryPolicyError(
@@ -155,18 +184,37 @@ def _execute_query(database_connection, sql):
             )
     except SQLAlchemyError as exc:
         raise QueryExecutionError(
-            redact_connection_error(str(exc), connection_string)
+            redact_connection_error(str(exc), async_connection_string)
         ) from exc
     finally:
         if engine is not None:
-            engine.dispose()
+            await engine.dispose()
 
 
-def apply_connection_timeout(connection, provider, organization):
+def async_sqlalchemy_connection_string(connection_string):
+    url = make_url(connection_string)
+    drivername = url.drivername
+    if drivername in {"sqlite", "sqlite+pysqlite"}:
+        url = url.set(drivername="sqlite+aiosqlite")
+    elif drivername in {"postgresql", "postgresql+psycopg", "postgres"}:
+        query = dict(url.query)
+        sslmode = query.pop("sslmode", "")
+        if sslmode and sslmode != "disable":
+            query["ssl"] = sslmode
+        url = url.set(drivername="postgresql+asyncpg", query=query)
+
+    if url.drivername not in ASYNC_SQLALCHEMY_DRIVERS:
+        raise QueryExecutionError(
+            f"Connection driver '{drivername}' is not supported for async report execution."
+        )
+    return url.render_as_string(hide_password=False)
+
+
+async def apply_connection_timeout(connection, provider, organization):
     timeout_seconds = organization.query_timeout_seconds
-    if provider == "postgres":
+    if provider == DatabaseConnection.Provider.POSTGRES:
         timeout_ms = int(timeout_seconds * 1000)
-        connection.execute(text(f"SET statement_timeout = {timeout_ms}"))
-    elif provider == "sqlite":
+        await connection.execute(text(f"SET statement_timeout = {timeout_ms}"))
+    elif provider == DatabaseConnection.Provider.SQLITE:
         timeout_ms = int(timeout_seconds * 1000)
-        connection.execute(text(f"PRAGMA busy_timeout = {timeout_ms}"))
+        await connection.execute(text(f"PRAGMA busy_timeout = {timeout_ms}"))

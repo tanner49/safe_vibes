@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
@@ -15,7 +16,55 @@ class ConnectionTestResult:
     message: str
 
 
+CONNECTION_CONFIG_VERSION = 1
+
+
+def build_connection_config(provider, **config):
+    return json.dumps(
+        {
+            "safe_reports_connection": CONNECTION_CONFIG_VERSION,
+            "provider": provider,
+            "config": config,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def parse_connection_config(raw_connection):
+    try:
+        payload = json.loads(raw_connection)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if payload.get("safe_reports_connection") != CONNECTION_CONFIG_VERSION:
+        return None
+    return payload
+
+
+def connection_config_preview(provider, parts):
+    if provider == "snowflake":
+        account = parts.get("account") or ""
+        database = parts.get("database") or ""
+        schema = parts.get("schema") or ""
+        namespace = ".".join(part for part in [database, schema] if part)
+        auth_type = parts.get("auth_type", "").replace("_", " ")
+        return f"snowflake://{account}/{namespace}?auth={auth_type or 'token'}"
+    if provider == "bigquery":
+        project_id = parts.get("project_id") or ""
+        dataset_id = parts.get("dataset_id") or ""
+        location = parts.get("location") or ""
+        suffix = f"?location={location}" if location else ""
+        return f"bigquery://{project_id}/{dataset_id}{suffix}"
+    return f"{provider} connection"
+
+
 def sanitize_connection_string(connection_string):
+    connection_config = parse_connection_config(connection_string)
+    if connection_config:
+        return connection_config_preview(
+            connection_config.get("provider"),
+            connection_config.get("config", {}),
+        )
     try:
         return make_url(connection_string).render_as_string(hide_password=True)
     except Exception as exc:
@@ -38,37 +87,43 @@ def build_postgres_connection_string(host, port, database, username, password, s
 def build_snowflake_connection_string(
     account,
     username,
-    password,
+    token,
     database,
     schema,
     warehouse,
     role,
+    auth_type="programmatic_access_token",
+    private_key="",
+    private_key_passphrase="",
 ):
-    query = {}
-    if warehouse:
-        query["warehouse"] = warehouse
-    if role:
-        query["role"] = role
-    return URL.create(
+    return build_connection_config(
         "snowflake",
-        username=username,
-        password=password,
-        host=account,
-        database="/".join(part for part in [database, schema] if part),
-        query=query,
-    ).render_as_string(hide_password=False)
+        account=account.strip(),
+        username=username.strip(),
+        token=token,
+        auth_type=auth_type,
+        private_key=private_key,
+        private_key_passphrase=private_key_passphrase,
+        database=database.strip(),
+        schema=(schema or "").strip(),
+        warehouse=(warehouse or "").strip(),
+        role=(role or "").strip(),
+    )
 
 
-def build_bigquery_connection_string(project_id, dataset_id, credentials_path):
-    query = {}
-    if credentials_path:
-        query["credentials_path"] = credentials_path
-    return URL.create(
+def build_bigquery_connection_string(
+    project_id,
+    dataset_id,
+    service_account_json,
+    location="",
+):
+    return build_connection_config(
         "bigquery",
-        host=project_id,
-        database=dataset_id,
-        query=query,
-    ).render_as_string(hide_password=False)
+        project_id=project_id.strip(),
+        dataset_id=dataset_id.strip(),
+        service_account_json=service_account_json,
+        location=(location or "").strip(),
+    )
 
 
 def build_sqlite_connection_string(path):
@@ -107,3 +162,17 @@ def test_sqlalchemy_connection(connection_string):
     finally:
         if engine is not None:
             engine.dispose()
+
+
+def test_database_connection(database_connection):
+    if database_connection.provider in {"snowflake", "bigquery"}:
+        from asgiref.sync import async_to_sync
+
+        from .query_execution import async_execute_query
+
+        try:
+            async_to_sync(async_execute_query)(database_connection, "select 1")
+            return ConnectionTestResult(True, "Connection test succeeded.")
+        except Exception as exc:
+            return ConnectionTestResult(False, str(exc))
+    return test_sqlalchemy_connection(database_connection.get_connection_string())

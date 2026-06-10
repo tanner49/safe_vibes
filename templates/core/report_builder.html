@@ -53,6 +53,34 @@
       flex: 0 0 auto;
     }
 
+    .model-picker {
+      border: 1px solid var(--sr-border);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .model-picker summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 0.65rem 0.75rem;
+    }
+
+    .model-picker summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .model-picker-summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .model-picker-body {
+      border-top: 1px solid var(--sr-border);
+      padding: 0.75rem;
+    }
+
     .chat-message {
       border: 1px solid var(--sr-border);
       border-radius: 8px;
@@ -83,6 +111,12 @@
       background: var(--sr-muted);
       opacity: 0.35;
       animation: thinking-pulse 1.1s infinite ease-in-out;
+    }
+
+    .stream-status {
+      margin-top: 0.25rem;
+      color: var(--sr-muted);
+      font-size: 0.875rem;
     }
 
     .thinking-indicator span:nth-child(2) {
@@ -168,18 +202,31 @@
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Chat</h2>
         </div>
-        <form class="border rounded-2 p-2 bg-white" method="post" action="{% url 'core:report_model_update' report.id %}">
-          {% csrf_token %}
-          <div class="mb-2">
-            <label class="form-label small mb-1" for="{{ model_form.ai_provider_key.id_for_label }}">AI provider</label>
-            {{ model_form.ai_provider_key }}
-          </div>
-          <div class="mb-2">
-            <label class="form-label small mb-1" for="{{ model_form.ai_model_name.id_for_label }}">Model</label>
-            {{ model_form.ai_model_name }}
-          </div>
-          <button class="btn btn-sm btn-outline-secondary w-100" type="submit">Use this model</button>
-        </form>
+        <details class="model-picker">
+          <summary>
+            <span class="model-picker-summary">
+              <span>
+                <span class="d-block small text-secondary">Model</span>
+                <span id="selected-model-summary" class="fw-semibold small">
+                  {{ model_form.ai_provider_key.initial|default:report.ai_provider_key }} · {{ model_form.ai_model_name.initial|default:report.ai_model_name|default:"No model selected" }}
+                </span>
+              </span>
+              <span class="small text-secondary">Change</span>
+            </span>
+          </summary>
+          <form class="model-picker-body" method="post" action="{% url 'core:report_model_update' report.id %}">
+            {% csrf_token %}
+            <div class="mb-2">
+              <label class="form-label small mb-1" for="{{ model_form.ai_provider_key.id_for_label }}">AI provider</label>
+              {{ model_form.ai_provider_key }}
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1" for="{{ model_form.ai_model_name.id_for_label }}">Model</label>
+              {{ model_form.ai_model_name }}
+            </div>
+            <button class="btn btn-sm btn-outline-secondary w-100" type="submit">Use this model</button>
+          </form>
+        </details>
       </div>
       <div id="chat-messages" class="report-chat-messages">
         {% include "core/partials/report_chat_messages.html" %}
@@ -202,13 +249,22 @@
       const title = document.getElementById("report-title");
       const providerSelect = document.getElementById("id_ai_provider_key");
       const modelSelect = document.getElementById("id_ai_model_name");
+      const selectedModelSummary = document.getElementById("selected-model-summary");
       const providerModelChoicesElement = document.getElementById("provider-model-choices");
       if (!form || !messages) return;
+
+      function updateSelectedModelSummary() {
+        if (!selectedModelSummary || !providerSelect || !modelSelect) return;
+        const providerLabel = providerSelect.selectedOptions[0]?.textContent || "No provider";
+        const modelLabel = modelSelect.selectedOptions[0]?.textContent || modelSelect.value || "No model selected";
+        selectedModelSummary.textContent = providerLabel + " · " + modelLabel;
+      }
 
       if (providerSelect && modelSelect && providerModelChoicesElement) {
         const providerModelChoices = JSON.parse(providerModelChoicesElement.textContent);
         providerSelect.addEventListener("change", function () {
-          const models = providerModelChoices[providerSelect.value] || [];
+          const providerConfig = providerModelChoices[providerSelect.value] || {};
+          const models = providerConfig.models || [];
           modelSelect.replaceChildren();
           models.forEach(function (model) {
             const option = document.createElement("option");
@@ -216,7 +272,11 @@
             option.textContent = model.display_name;
             modelSelect.appendChild(option);
           });
+          if (providerConfig.default_model) modelSelect.value = providerConfig.default_model;
+          updateSelectedModelSummary();
         });
+        modelSelect.addEventListener("change", updateSelectedModelSummary);
+        updateSelectedModelSummary();
       }
 
       function appendMessage(role, content, className) {
@@ -235,22 +295,33 @@
         wrapper.appendChild(label);
         wrapper.appendChild(body);
         let thinking = null;
+        let status = null;
         if (!content && className.includes("streaming")) {
           thinking = document.createElement("div");
           thinking.className = "thinking-indicator";
           thinking.setAttribute("aria-label", "Assistant is thinking");
           thinking.innerHTML = "<span></span><span></span><span></span>";
           wrapper.appendChild(thinking);
+          status = document.createElement("div");
+          status.className = "stream-status";
+          status.textContent = "Starting...";
+          wrapper.appendChild(status);
         }
         messages.appendChild(wrapper);
         messages.scrollTop = messages.scrollHeight;
-        return { wrapper, body, thinking };
+        return { wrapper, body, thinking, status };
       }
 
       function removeThinking(assistant) {
         if (!assistant.thinking) return;
         assistant.thinking.remove();
         assistant.thinking = null;
+      }
+
+      function clearStatus(assistant) {
+        if (!assistant.status) return;
+        assistant.status.remove();
+        assistant.status = null;
       }
 
       function appendArtifact(wrapper, artifact) {
@@ -288,20 +359,28 @@
       }
 
       function handleEvent(eventName, data, assistant) {
+        if (eventName === "status") {
+          if (assistant.status) assistant.status.textContent = data.message || "";
+          messages.scrollTop = messages.scrollHeight;
+          return;
+        }
         if (eventName === "delta") {
           removeThinking(assistant);
+          clearStatus(assistant);
           assistant.body.textContent += data.text || "";
           messages.scrollTop = messages.scrollHeight;
           return;
         }
         if (eventName === "error") {
           removeThinking(assistant);
+          clearStatus(assistant);
           assistant.body.textContent = data.message || "Something went wrong.";
           assistant.wrapper.classList.remove("streaming");
           return;
         }
         if (eventName === "done") {
           removeThinking(assistant);
+          clearStatus(assistant);
           assistant.body.textContent = data.content || assistant.body.textContent;
           assistant.wrapper.classList.remove("streaming");
           appendArtifact(assistant.wrapper, data.artifact);
