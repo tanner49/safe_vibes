@@ -96,8 +96,6 @@ def migrate_custom_to_other(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
-    replaces = [('core', '0001_initial'), ('core', '0002_aiproviderkey'), ('core', '0003_alter_membership_options'), ('core', '0004_aiprovidermodel'), ('core', '0005_alter_aiproviderkey_model_name'), ('core', '0006_aimodelcatalog'), ('core', '0007_seed_openai_model_catalog'), ('core', '0008_remove_aiproviderkey_enabled'), ('core', '0009_alter_aimodelcatalog_provider_and_more'), ('core', '0010_seed_claude_gemini_model_catalog'), ('core', '0011_databaseconnection'), ('core', '0012_alter_databaseconnection_provider'), ('core', '0013_queryexecutionlog'), ('core', '0014_report_reportchatmessage'), ('core', '0015_report_ai_model_name_and_more'), ('core', '0016_reportchatmessage_artifact'), ('core', '0017_report_shared_with_report_sharing_scope'), ('core', '0018_queryexecutionlog_cache_status_reportdatasetcache'), ('core', '0019_reportdatasetcachelock'), ('core', '0020_organization_security_policies'), ('core', '0021_organization_sso_oidc'), ('core', '0022_organization_report_cache_enabled')]
-
     initial = True
 
     dependencies = [
