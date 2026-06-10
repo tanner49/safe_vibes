@@ -442,7 +442,7 @@
 
       window.addEventListener("message", function (event) {
         if (event.origin !== window.location.origin) return;
-        if (!event.data || event.data.type !== "safe_reports.preview_error") return;
+        if (!event.data || event.data.type !== "save_vibes.preview_error") return;
         const result = event.data.result || {};
         (result.messages || []).forEach(function (message) {
           appendMessage("Assistant", message, "assistant");

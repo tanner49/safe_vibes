@@ -15,7 +15,7 @@ import psycopg
 
 
 DEFAULT_DATABASE_URL = (
-    "postgresql://safe_reports_demo:safe_reports_demo@localhost:55432/safe_reports_demo"
+    "postgresql://save_vibes_demo:save_vibes_demo@localhost:55432/save_vibes_demo"
 )
 
 DATABASE_URL = os.getenv("DEMO_DATABASE_URL", DEFAULT_DATABASE_URL)

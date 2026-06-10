@@ -4,7 +4,7 @@ services:
     env_file:
       - .env.docker.example
     environment:
-      DATABASE_URL: postgres://safe_reports:safe_reports@db:5432/safe_reports
+      DATABASE_URL: postgres://save_vibes:save_vibes@db:5432/save_vibes
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
     ports:
       - "8000:8000"
@@ -15,13 +15,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: safe_reports
-      POSTGRES_USER: safe_reports
-      POSTGRES_PASSWORD: safe_reports
+      POSTGRES_DB: save_vibes
+      POSTGRES_USER: save_vibes
+      POSTGRES_PASSWORD: save_vibes
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U safe_reports -d safe_reports"]
+      test: ["CMD-SHELL", "pg_isready -U save_vibes -d save_vibes"]
       interval: 5s
       timeout: 5s
       retries: 20

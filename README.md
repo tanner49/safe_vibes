@@ -1,6 +1,6 @@
-# Safe Reports
+# Save Vibes
 
-Safe Reports is a Django app for building and sharing AI-generated HTML reports
+Save Vibes is a Django app for building and sharing AI-generated HTML reports
 without turning every sales ops or finance experiment into unmanaged shadow IT.
 
 Users chat with an AI report builder, connect approved databases, generate SQL
@@ -14,7 +14,7 @@ Business teams are already vibe-coding reports with AI. They paste SQL into
 tools, pass around HTML files, and accidentally create cost, security, and
 governance problems.
 
-Safe Reports gives those teams a safer place to build while giving engineering
+Save Vibes gives those teams a safer place to build while giving engineering
 and IT a control plane.
 
 ## Main Features
@@ -107,7 +107,7 @@ docker compose exec web python manage.py createsuperuser
 The default compose database is:
 
 ```env
-DATABASE_URL=postgres://safe_reports:safe_reports@db:5432/safe_reports
+DATABASE_URL=postgres://save_vibes:save_vibes@db:5432/save_vibes
 ```
 
 For a real Docker deployment:
@@ -248,7 +248,7 @@ login for bootstrap/admin access.
 
 ## Security Model
 
-Safe Reports includes several guardrails:
+Save Vibes includes several guardrails:
 
 - Read-only SQL policy checks
 - Query timeout, row count, raw byte, and compressed cache limits
@@ -280,4 +280,4 @@ python services/seed_demo_postgres.py
 
 ## License
 
-Safe Reports is released under the Apache License 2.0. See [LICENSE](LICENSE).
+Save Vibes is released under the Apache License 2.0. See [LICENSE](LICENSE).

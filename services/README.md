@@ -30,16 +30,16 @@ Default connection details:
 ```text
 Host: localhost
 Port: 55432
-Database: safe_reports_demo
-Username: safe_reports_demo
-Password: safe_reports_demo
+Database: save_vibes_demo
+Username: save_vibes_demo
+Password: save_vibes_demo
 SSL mode: disable
 ```
 
 Custom connection string:
 
 ```text
-postgresql+psycopg://safe_reports_demo:safe_reports_demo@localhost:55432/safe_reports_demo?sslmode=disable
+postgresql+psycopg://save_vibes_demo:save_vibes_demo@localhost:55432/save_vibes_demo?sslmode=disable
 ```
 
 Reset the dataset by rerunning the seed script. It drops and recreates the demo

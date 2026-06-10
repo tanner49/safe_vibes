@@ -815,7 +815,7 @@ def report_preview(request, report_id):
       }});
       const result = await response.json();
       if (window.parent && window.parent !== window) {{
-        window.parent.postMessage({{ type: "safe_reports.preview_error", result }}, window.location.origin);
+        window.parent.postMessage({{ type: "save_vibes.preview_error", result }}, window.location.origin);
       }}
     }} catch (_reportingFailure) {{
     }} finally {{

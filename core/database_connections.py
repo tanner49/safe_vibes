@@ -17,12 +17,14 @@ class ConnectionTestResult:
 
 
 CONNECTION_CONFIG_VERSION = 1
+CONNECTION_CONFIG_KEY = "save_vibes_connection"
+LEGACY_CONNECTION_CONFIG_KEY = "safe_reports_connection"
 
 
 def build_connection_config(provider, **config):
     return json.dumps(
         {
-            "safe_reports_connection": CONNECTION_CONFIG_VERSION,
+            CONNECTION_CONFIG_KEY: CONNECTION_CONFIG_VERSION,
             "provider": provider,
             "config": config,
         },
@@ -36,7 +38,10 @@ def parse_connection_config(raw_connection):
         payload = json.loads(raw_connection)
     except (TypeError, json.JSONDecodeError):
         return None
-    if payload.get("safe_reports_connection") != CONNECTION_CONFIG_VERSION:
+    config_version = payload.get(CONNECTION_CONFIG_KEY)
+    if config_version is None:
+        config_version = payload.get(LEGACY_CONNECTION_CONFIG_KEY)
+    if config_version != CONNECTION_CONFIG_VERSION:
         return None
     return payload
 

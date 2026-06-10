@@ -1,4 +1,4 @@
-"""Django settings for the safe reports application."""
+"""Django settings for the save vibes application."""
 
 import os
 from pathlib import Path
@@ -26,7 +26,7 @@ def env_list(name: str, default: list[str] | None = None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-APP_NAME = os.getenv("APP_NAME", "Safe Reports")
+APP_NAME = os.getenv("APP_NAME", "Save Vibes")
 
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",
@@ -36,7 +36,7 @@ SECRET_ENCRYPTION_KEY = os.getenv("SECRET_ENCRYPTION_KEY", "")
 
 DEBUG = env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost",'safe-reports-27f4bd94302f.herokuapp.com'])
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
 
 
 # Application definition

@@ -2115,7 +2115,7 @@ class ReportBuilderTests(TestCase):
         self.assertContains(response, "window.addEventListener(\"error\"")
         self.assertContains(response, "window.addEventListener(\"unhandledrejection\"")
         self.assertContains(response, reverse("core:report_preview_error", args=[report.id]))
-        self.assertContains(response, "safe_reports.preview_error")
+        self.assertContains(response, "save_vibes.preview_error")
         self.assertContains(response, "await reportError(error, \"sr.dataset(\" + name + \")\")")
 
     def test_preview_error_posts_to_chat_and_triggers_repair(self):

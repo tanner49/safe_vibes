@@ -23,7 +23,7 @@ from .query_execution import (
 BIGQUERY_SCOPE = "https://www.googleapis.com/auth/bigquery"
 BIGQUERY_API_ROOT = "https://bigquery.googleapis.com/bigquery/v2"
 BIGQUERY_TOKEN_AUDIENCE = "https://oauth2.googleapis.com/token"
-SNOWFLAKE_API_USER_AGENT = "safe-reports/0.1"
+SNOWFLAKE_API_USER_AGENT = "save-vibes/0.1"
 
 
 def provider_config(database_connection, expected_provider):

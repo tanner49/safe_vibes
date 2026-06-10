@@ -1,4 +1,4 @@
-# Safe Reports MVP Product Requirements
+# Save Vibes MVP Product Requirements
 
 ## Product Summary
 
