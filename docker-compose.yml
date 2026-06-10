@@ -1,0 +1,30 @@
+services:
+  web:
+    build: .
+    env_file:
+      - .env.docker.example
+    environment:
+      DATABASE_URL: postgres://safe_reports:safe_reports@db:5432/safe_reports
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: safe_reports
+      POSTGRES_USER: safe_reports
+      POSTGRES_PASSWORD: safe_reports
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safe_reports -d safe_reports"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_data:

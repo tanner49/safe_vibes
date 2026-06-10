@@ -410,7 +410,6 @@ class CompanySettingsTests(TestCase):
         response = self.client.post(
             reverse("core:settings_report_limits"),
             {
-                "sso_required": "on",
                 "query_timeout_seconds": "90",
                 "cache_ttl_seconds": "3600",
                 "max_rows": "10000",
@@ -422,12 +421,62 @@ class CompanySettingsTests(TestCase):
         organization.refresh_from_db()
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], reverse("core:settings_home"))
-        self.assertTrue(organization.sso_required)
+        self.assertFalse(organization.sso_required)
         self.assertEqual(organization.query_timeout_seconds, 90)
+        self.assertFalse(organization.report_cache_enabled)
         self.assertEqual(organization.cache_ttl_seconds, 3600)
         self.assertEqual(organization.max_rows, 10000)
         self.assertEqual(organization.max_raw_bytes, 2000000)
         self.assertEqual(organization.max_compressed_bytes, 500000)
+
+    def test_company_admin_can_update_sso_settings(self):
+        user = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=user,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("core:settings_sso"),
+            {
+                "sso_oidc_enabled": "on",
+                "sso_required": "on",
+                "sso_oidc_issuer_url": "https://example.okta.com/oauth2/default",
+                "sso_oidc_client_id": "client-123",
+                "client_secret": "secret-abc",
+                "sso_oidc_scopes": "openid email profile",
+            },
+        )
+
+        organization.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:settings_sso"))
+        self.assertTrue(organization.sso_oidc_enabled)
+        self.assertTrue(organization.sso_required)
+        self.assertEqual(organization.sso_oidc_client_id, "client-123")
+        self.assertNotEqual(organization.encrypted_sso_oidc_client_secret, "secret-abc")
+        self.assertEqual(organization.get_sso_oidc_client_secret(), "secret-abc")
+        self.assertEqual(organization.sso_oidc_client_secret_last_four, "-abc")
+
+    def test_sso_settings_page_shows_provider_urls(self):
+        user = create_user("admin@example.com")
+        organization = Organization.objects.create(name="Internal Test Org")
+        Membership.objects.create(
+            organization=organization,
+            user=user,
+            role=Membership.Role.ADMIN,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("core:settings_sso"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("core:sso_oidc_start", args=[organization.slug]))
+        self.assertContains(response, reverse("core:sso_oidc_callback", args=[organization.slug]))
+        self.assertContains(response, "OIDC")
 
     def test_company_admin_can_update_security_settings(self):
         user = create_user("admin@example.com")
@@ -1803,6 +1852,35 @@ class ReportBuilderTests(TestCase):
             [
                 QueryExecutionLog.CacheStatus.MISS,
                 QueryExecutionLog.CacheStatus.HIT,
+            ],
+        )
+
+    def test_report_dataset_endpoint_bypasses_cache_when_disabled(self):
+        report = self.create_report()
+        self.organization.report_cache_enabled = False
+        self.organization.save(update_fields=["report_cache_enabled"])
+        self.client.force_login(self.creator)
+
+        first_response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+        second_response = self.client.get(reverse("core:report_primary_dataset", args=[report.id]))
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertFalse(first_response.json()["cache_hit"])
+        self.assertFalse(second_response.json()["cache_hit"])
+        self.assertFalse(ReportDatasetCache.objects.filter(report=report).exists())
+        self.assertFalse(ReportDatasetCacheLock.objects.exists())
+        cache_statuses = list(
+            QueryExecutionLog.objects.order_by("created_at").values_list(
+                "cache_status",
+                flat=True,
+            )
+        )
+        self.assertEqual(
+            cache_statuses,
+            [
+                QueryExecutionLog.CacheStatus.BYPASS,
+                QueryExecutionLog.CacheStatus.BYPASS,
             ],
         )
 

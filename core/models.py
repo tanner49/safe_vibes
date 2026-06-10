@@ -10,10 +10,17 @@ class Organization(models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True, blank=True)
     sso_required = models.BooleanField(default=False)
+    sso_oidc_enabled = models.BooleanField(default=False)
+    sso_oidc_issuer_url = models.URLField(blank=True)
+    sso_oidc_client_id = models.CharField(max_length=255, blank=True)
+    encrypted_sso_oidc_client_secret = models.TextField(blank=True)
+    sso_oidc_client_secret_last_four = models.CharField(max_length=4, blank=True)
+    sso_oidc_scopes = models.CharField(max_length=255, default="openid email profile")
 
     query_timeout_seconds = models.PositiveIntegerField(
         default=settings.REPORT_QUERY_TIMEOUT_SECONDS
     )
+    report_cache_enabled = models.BooleanField(default=settings.REPORT_CACHE_ENABLED)
     cache_ttl_seconds = models.PositiveIntegerField(default=settings.REPORT_CACHE_TTL_SECONDS)
     max_rows = models.PositiveIntegerField(default=settings.REPORT_MAX_ROWS)
     max_raw_bytes = models.PositiveBigIntegerField(default=settings.REPORT_MAX_RAW_BYTES)
@@ -43,6 +50,15 @@ class Organization(models.Model):
 
     def get_absolute_url(self):
         return reverse("core:reports_placeholder")
+
+    def set_sso_oidc_client_secret(self, client_secret):
+        self.encrypted_sso_oidc_client_secret = encrypt_text(client_secret)
+        self.sso_oidc_client_secret_last_four = client_secret[-4:]
+
+    def get_sso_oidc_client_secret(self):
+        if not self.encrypted_sso_oidc_client_secret:
+            return ""
+        return decrypt_text(self.encrypted_sso_oidc_client_secret)
 
 
 class Membership(models.Model):

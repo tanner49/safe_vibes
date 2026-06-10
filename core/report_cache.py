@@ -36,6 +36,15 @@ def report_dataset_cache_key(report, dataset_name="primary"):
 
 
 def get_report_dataset(report, dataset_name="primary", user=None):
+    if not report.organization.report_cache_enabled:
+        result = execute_query(
+            report.database_connection,
+            report.primary_sql,
+            user=user,
+            cache_status=QueryExecutionLog.CacheStatus.BYPASS,
+        )
+        return query_result_payload(result), False
+
     cache_key = report_dataset_cache_key(report, dataset_name)
     cache = get_fresh_report_dataset_cache(cache_key)
     if cache:
@@ -56,12 +65,7 @@ def get_report_dataset(report, dataset_name="primary", user=None):
         payload = None
         try:
             result = execute_query(report.database_connection, report.primary_sql, user=user)
-            payload = {
-                "columns": result.columns,
-                "rows": result.rows,
-                "row_count": result.row_count,
-                "raw_bytes": result.raw_bytes,
-            }
+            payload = query_result_payload(result)
             store_report_dataset_cache(report, payload, cache_key, dataset_name)
         except Exception as exc:
             error = exc
@@ -72,6 +76,15 @@ def get_report_dataset(report, dataset_name="primary", user=None):
 
 
 async def async_get_report_dataset(report, dataset_name="primary", user=None):
+    if not report.organization.report_cache_enabled:
+        result = await async_execute_query(
+            report.database_connection,
+            report.primary_sql,
+            user=user,
+            cache_status=QueryExecutionLog.CacheStatus.BYPASS,
+        )
+        return query_result_payload(result), False
+
     cache_key = report_dataset_cache_key(report, dataset_name)
     cache = await sync_to_async(get_fresh_report_dataset_cache, thread_sensitive=True)(
         cache_key
@@ -98,12 +111,7 @@ async def async_get_report_dataset(report, dataset_name="primary", user=None):
             report.primary_sql,
             user=user,
         )
-        payload = {
-            "columns": result.columns,
-            "rows": result.rows,
-            "row_count": result.row_count,
-            "raw_bytes": result.raw_bytes,
-        }
+        payload = query_result_payload(result)
         await sync_to_async(store_report_dataset_cache, thread_sensitive=True)(
             report,
             payload,
@@ -127,6 +135,15 @@ def get_fresh_report_dataset_cache(cache_key):
         .select_related("database_connection", "organization")
         .first()
     )
+
+
+def query_result_payload(result):
+    return {
+        "columns": result.columns,
+        "rows": result.rows,
+        "row_count": result.row_count,
+        "raw_bytes": result.raw_bytes,
+    }
 
 
 def get_or_create_cache_lock(cache_key):

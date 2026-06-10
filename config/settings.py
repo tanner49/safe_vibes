@@ -84,15 +84,17 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_CONN_MAX_AGE = int(os.getenv("DATABASE_CONN_MAX_AGE", "0"))
 
 if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
-            conn_max_age=600,
+            conn_max_age=DATABASE_CONN_MAX_AGE,
             conn_health_checks=True,
         )
     }
@@ -165,6 +167,7 @@ LOGOUT_REDIRECT_URL = "core:home"
 # Conservative report/runtime defaults. These should be copied into
 # organization-level settings when account models are added.
 REPORT_QUERY_TIMEOUT_SECONDS = int(os.getenv("REPORT_QUERY_TIMEOUT_SECONDS", "120"))
+REPORT_CACHE_ENABLED = env_bool("REPORT_CACHE_ENABLED", True)
 REPORT_CACHE_TTL_SECONDS = int(os.getenv("REPORT_CACHE_TTL_SECONDS", "86400"))
 REPORT_MAX_ROWS = int(os.getenv("REPORT_MAX_ROWS", "50000"))
 REPORT_MAX_RAW_BYTES = int(os.getenv("REPORT_MAX_RAW_BYTES", "52428800"))
@@ -176,3 +179,37 @@ DEMO_DATABASE_CONNECTION_NAME = os.getenv(
     "Demo SaaS Sales",
 )
 ENABLE_DEMO_DATABASE_CONNECTION = env_bool("ENABLE_DEMO_DATABASE_CONNECTION", True)
+
+
+LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "%(levelname)s %(asctime)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "console",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "django.server": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}

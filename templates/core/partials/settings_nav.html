@@ -11,6 +11,9 @@
       <a class="settings-nav-link {% if current == 'settings_users' or current == 'settings_user_add' %}active{% endif %}" href="{% url 'core:settings_users' %}">
         Users
       </a>
+      <a class="settings-nav-link {% if current == 'settings_sso' %}active{% endif %}" href="{% url 'core:settings_sso' %}">
+        SSO
+      </a>
       <a class="settings-nav-link {% if current == 'settings_ai_providers' or current == 'settings_ai_provider_add' or current == 'settings_ai_provider_detail' %}active{% endif %}" href="{% url 'core:settings_ai_providers' %}">
         AI providers
       </a>

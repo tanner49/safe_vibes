@@ -6,6 +6,8 @@ app_name = "core"
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("sso/<slug:organization_slug>/login/", views.sso_oidc_start, name="sso_oidc_start"),
+    path("sso/<slug:organization_slug>/callback/", views.sso_oidc_callback, name="sso_oidc_callback"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("builder/", views.builder_home, name="builder_home"),
     path("builder/new/", views.builder_new, name="builder_new"),
@@ -58,6 +60,7 @@ urlpatterns = [
         views.settings_report_limits,
         name="settings_report_limits",
     ),
+    path("settings/sso/", views.settings_sso, name="settings_sso"),
     path("settings/security/", views.settings_security, name="settings_security"),
     path(
         "settings/connections/",

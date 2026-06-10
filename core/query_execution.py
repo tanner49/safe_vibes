@@ -85,11 +85,26 @@ def validate_read_only_sql(sql):
         raise QueryPolicyError("Write and schema-changing SQL statements are not allowed.")
 
 
-def execute_query(database_connection, sql, user=None):
-    return async_to_sync(async_execute_query)(database_connection, sql, user=user)
+def execute_query(
+    database_connection,
+    sql,
+    user=None,
+    cache_status=QueryExecutionLog.CacheStatus.MISS,
+):
+    return async_to_sync(async_execute_query)(
+        database_connection,
+        sql,
+        user=user,
+        cache_status=cache_status,
+    )
 
 
-async def async_execute_query(database_connection, sql, user=None):
+async def async_execute_query(
+    database_connection,
+    sql,
+    user=None,
+    cache_status=QueryExecutionLog.CacheStatus.MISS,
+):
     organization = await sync_to_async(
         lambda: database_connection.organization,
         thread_sensitive=True,
@@ -100,7 +115,7 @@ async def async_execute_query(database_connection, sql, user=None):
         database_connection=database_connection,
         user=user if user and user.is_authenticated else None,
         sql_preview=sql_preview(sql),
-        cache_status=QueryExecutionLog.CacheStatus.MISS,
+        cache_status=cache_status,
     )
 
     try:

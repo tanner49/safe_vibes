@@ -55,17 +55,19 @@ class OrganizationPolicyForm(forms.ModelForm):
     class Meta:
         model = Organization
         fields = [
-            "sso_required",
             "query_timeout_seconds",
+            "report_cache_enabled",
             "cache_ttl_seconds",
             "max_rows",
             "max_raw_bytes",
             "max_compressed_bytes",
         ]
         widgets = {
-            "sso_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "query_timeout_seconds": forms.NumberInput(
                 attrs={"class": "form-control", "min": 1}
+            ),
+            "report_cache_enabled": forms.CheckboxInput(
+                attrs={"class": "form-check-input", "role": "switch"}
             ),
             "cache_ttl_seconds": forms.NumberInput(
                 attrs={"class": "form-control", "min": 0}
@@ -79,13 +81,79 @@ class OrganizationPolicyForm(forms.ModelForm):
             ),
         }
         help_texts = {
-            "sso_required": "Require users in this organization to sign in with SSO once it is configured.",
             "query_timeout_seconds": "Maximum time a report query may run before it is stopped.",
+            "report_cache_enabled": "Reuse report dataset results until the TTL expires. Turn this off to run SQL on every report load.",
             "cache_ttl_seconds": "How long cached report data stays fresh. Use 86400 for 24 hours.",
             "max_rows": "Maximum rows a report dataset can return to the browser.",
             "max_raw_bytes": "Maximum uncompressed JSON payload size returned to the browser.",
             "max_compressed_bytes": "Maximum compressed cache entry size stored in the app database.",
         }
+
+
+class OrganizationSSOForm(forms.ModelForm):
+    client_secret = forms.CharField(
+        label="Client secret",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control"}),
+        help_text="Leave blank to keep the existing encrypted secret.",
+    )
+
+    class Meta:
+        model = Organization
+        fields = [
+            "sso_oidc_enabled",
+            "sso_required",
+            "sso_oidc_issuer_url",
+            "sso_oidc_client_id",
+            "sso_oidc_scopes",
+        ]
+        widgets = {
+            "sso_oidc_enabled": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "sso_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "sso_oidc_issuer_url": forms.URLInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "https://your-company.okta.com/oauth2/default",
+                }
+            ),
+            "sso_oidc_client_id": forms.TextInput(attrs={"class": "form-control"}),
+            "sso_oidc_scopes": forms.TextInput(attrs={"class": "form-control"}),
+        }
+        labels = {
+            "sso_oidc_enabled": "Enable OIDC SSO",
+            "sso_required": "Require SSO for this organization",
+            "sso_oidc_issuer_url": "Issuer URL",
+            "sso_oidc_client_id": "Client ID",
+            "sso_oidc_scopes": "Scopes",
+        }
+        help_texts = {
+            "sso_oidc_enabled": "Turn this on after registering the callback URL in your identity provider.",
+            "sso_required": "Blocks password login for non-staff users in this organization.",
+            "sso_oidc_issuer_url": "The OIDC issuer URL. For Okta this often ends with /oauth2/default.",
+            "sso_oidc_client_id": "The client ID from your identity provider.",
+            "sso_oidc_scopes": "Most OIDC providers should use: openid email profile.",
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        oidc_enabled = cleaned_data.get("sso_oidc_enabled")
+        if oidc_enabled:
+            for field_name in ["sso_oidc_issuer_url", "sso_oidc_client_id", "sso_oidc_scopes"]:
+                if not cleaned_data.get(field_name):
+                    self.add_error(field_name, "This field is required when SSO is enabled.")
+            if not self.instance.encrypted_sso_oidc_client_secret and not self.cleaned_data.get("client_secret"):
+                self.add_error("client_secret", "Add a client secret before enabling SSO.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        organization = super().save(commit=False)
+        client_secret = self.cleaned_data.get("client_secret")
+        if client_secret:
+            organization.set_sso_oidc_client_secret(client_secret)
+        if commit:
+            organization.save()
+        return organization
 
 
 class OrganizationSecurityForm(forms.ModelForm):

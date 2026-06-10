@@ -28,6 +28,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "slug",
         "sso_required",
         "query_timeout_seconds",
+        "report_cache_enabled",
         "cache_ttl_seconds",
         "max_rows",
         "created_at",
@@ -37,12 +38,26 @@ class OrganizationAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("name",)}
     inlines = [MembershipInline]
     fieldsets = [
-        (None, {"fields": ["name", "slug", "sso_required"]}),
+        (None, {"fields": ["name", "slug"]}),
+        (
+            "SSO",
+            {
+                "fields": [
+                    "sso_oidc_enabled",
+                    "sso_required",
+                    "sso_oidc_issuer_url",
+                    "sso_oidc_client_id",
+                    "sso_oidc_client_secret_last_four",
+                    "sso_oidc_scopes",
+                ]
+            },
+        ),
         (
             "Report Limits",
             {
                 "fields": [
                     "query_timeout_seconds",
+                    "report_cache_enabled",
                     "cache_ttl_seconds",
                     "max_rows",
                     "max_raw_bytes",
@@ -50,7 +65,22 @@ class OrganizationAdmin(admin.ModelAdmin):
                 ]
             },
         ),
+        (
+            "Security",
+            {
+                "fields": [
+                    "report_ip_allowlist_enabled",
+                    "report_ip_allowlist",
+                    "report_url_whitelist_enabled",
+                    "report_url_whitelist",
+                    "report_url_blacklist_enabled",
+                    "report_url_blacklist",
+                ]
+            },
+        ),
     ]
+    readonly_fields = ["sso_oidc_client_secret_last_four"]
+    exclude = ["encrypted_sso_oidc_client_secret"]
 
 
 @admin.register(Membership)

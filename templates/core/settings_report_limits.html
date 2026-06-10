@@ -28,17 +28,15 @@
             {% endif %}
 
             <div class="form-check form-switch mb-4">
-              {{ form.sso_required }}
-              <label class="form-check-label" for="{{ form.sso_required.id_for_label }}">
-                Require SSO for this organization
-              </label>
-              <div class="form-text">{{ form.sso_required.help_text }}</div>
-              {{ form.sso_required.errors }}
+              {{ form.report_cache_enabled }}
+              <label class="form-check-label" for="{{ form.report_cache_enabled.id_for_label }}">{{ form.report_cache_enabled.label }}</label>
+              <div class="form-text">{{ form.report_cache_enabled.help_text }}</div>
+              {{ form.report_cache_enabled.errors }}
             </div>
 
             <div class="row g-3">
               {% for field in form %}
-                {% if field.name != "sso_required" %}
+                {% if field.name != "report_cache_enabled" %}
                   <div class="col-md-6">
                     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}

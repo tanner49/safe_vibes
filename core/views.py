@@ -30,6 +30,7 @@ from .forms import (
     DatabaseConnectionUpdateForm,
     OrganizationPolicyForm,
     OrganizationSecurityForm,
+    OrganizationSSOForm,
     ReportAIModelForm,
     ReportChatForm,
     ReportImportForm,
@@ -37,7 +38,7 @@ from .forms import (
     ReportUpdateForm,
 )
 from .memberships import get_current_membership
-from .models import AIProviderKey, DatabaseConnection, Membership, Report, ReportChatMessage
+from .models import AIProviderKey, DatabaseConnection, Membership, Organization, Report, ReportChatMessage
 from .database_connections import test_database_connection
 from .query_execution import QueryExecutionError
 from .report_cache import ReportCacheError, async_get_report_dataset, get_report_dataset
@@ -84,6 +85,24 @@ def home(request):
     if request.user.is_authenticated:
         return redirect("core:reports_placeholder")
     return render(request, "core/home.html")
+
+
+def sso_oidc_start(request, organization_slug):
+    organization = get_object_or_404(Organization, slug=organization_slug)
+    if not organization.sso_oidc_enabled:
+        messages.error(request, "SSO is not enabled for this organization yet.")
+        return redirect("login")
+    messages.info(
+        request,
+        "SSO configuration is saved. The OIDC login callback flow is the next integration step.",
+    )
+    return redirect("login")
+
+
+def sso_oidc_callback(request, organization_slug):
+    get_object_or_404(Organization, slug=organization_slug)
+    messages.error(request, "OIDC callback handling is not enabled in this build yet.")
+    return redirect("login")
 
 
 @login_required
@@ -999,6 +1018,40 @@ def settings_report_limits(request):
         "core/settings_report_limits.html",
         {
             "form": form,
+            "membership": membership,
+            "organization": organization,
+        },
+    )
+
+
+@login_required
+def settings_sso(request):
+    membership = require_company_admin(request.user)
+    organization = membership.organization
+
+    if request.method == "POST":
+        form = OrganizationSSOForm(request.POST, instance=organization)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "SSO settings updated.")
+            return redirect("core:settings_sso")
+    else:
+        form = OrganizationSSOForm(instance=organization)
+
+    callback_url = request.build_absolute_uri(
+        reverse("core:sso_oidc_callback", args=[organization.slug])
+    )
+    login_url = request.build_absolute_uri(
+        reverse("core:sso_oidc_start", args=[organization.slug])
+    )
+
+    return render(
+        request,
+        "core/settings_sso.html",
+        {
+            "callback_url": callback_url,
+            "form": form,
+            "login_url": login_url,
             "membership": membership,
             "organization": organization,
         },

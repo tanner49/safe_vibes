@@ -27,12 +27,14 @@
                   <p class="text-secondary mb-3">
                     {% if organization.sso_required %}
                       User access is managed through your identity provider.
+                    {% elif organization.sso_oidc_enabled %}
+                      OIDC SSO is configured for this organization.
                     {% else %}
                       Local users can be added and removed from this workspace.
                     {% endif %}
                   </p>
                 </div>
-                <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:settings_users' %}">Manage</a>
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:settings_sso' %}">Manage SSO</a>
               </div>
               {% if not organization.sso_required %}
                 <a class="btn btn-sm btn-outline-primary mb-3" href="{% url 'core:settings_user_add' %}">Add user</a>
@@ -44,6 +46,8 @@
                 <dd class="col-sm-7">{{ organization.slug }}</dd>
                 <dt class="col-sm-5">SSO required</dt>
                 <dd class="col-sm-7">{{ organization.sso_required|yesno:"Yes,No" }}</dd>
+                <dt class="col-sm-5">OIDC configured</dt>
+                <dd class="col-sm-7">{{ organization.sso_oidc_enabled|yesno:"Yes,No" }}</dd>
               </dl>
             </div>
           </section>
@@ -64,6 +68,8 @@
               <dl class="row mb-0">
                 <dt class="col-sm-7">Query timeout</dt>
                 <dd class="col-sm-5">{{ organization.query_timeout_seconds }} seconds</dd>
+                <dt class="col-sm-7">Report cache</dt>
+                <dd class="col-sm-5">{% if organization.report_cache_enabled %}On{% else %}Off{% endif %}</dd>
                 <dt class="col-sm-7">Cache TTL</dt>
                 <dd class="col-sm-5">{{ organization.cache_ttl_seconds }} seconds</dd>
                 <dt class="col-sm-7">Max rows</dt>

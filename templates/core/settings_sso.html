@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}SSO Settings - {{ app_name }}{% endblock %}
+
+{% block content %}
+  <div class="settings-shell">
+    {% include "core/partials/settings_nav.html" %}
+
+    <div class="settings-content">
+      <div class="settings-page-header">
+        <div>
+          <div class="page-kicker">Company settings</div>
+          <h1 class="h3 mb-1">Single Sign-On</h1>
+          <p class="text-secondary mb-0">
+            Configure a generic OIDC provider such as Okta, Google Workspace, Entra ID, or Auth0.
+          </p>
+        </div>
+      </div>
+
+      <section class="card mb-4">
+        <div class="card-body">
+          <h2 class="h5">Identity provider setup</h2>
+          <p class="text-secondary">
+            Create an OIDC web application in your identity provider and paste these URLs into its settings.
+          </p>
+          <dl class="row mb-0">
+            <dt class="col-md-4">Sign-in URL</dt>
+            <dd class="col-md-8"><code>{{ login_url }}</code></dd>
+            <dt class="col-md-4">Redirect / callback URL</dt>
+            <dd class="col-md-8"><code>{{ callback_url }}</code></dd>
+            <dt class="col-md-4">Expected email claim</dt>
+            <dd class="col-md-8"><code>email</code></dd>
+          </dl>
+          <div class="alert alert-warning mt-3 mb-0">
+            Users still need organization memberships in Safe Reports. SSO verifies identity; it does not auto-provision access yet.
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+              <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="form-check form-switch mb-4">
+              {{ form.sso_oidc_enabled }}
+              <label class="form-check-label" for="{{ form.sso_oidc_enabled.id_for_label }}">
+                {{ form.sso_oidc_enabled.label }}
+              </label>
+              <div class="form-text">{{ form.sso_oidc_enabled.help_text }}</div>
+              {{ form.sso_oidc_enabled.errors }}
+            </div>
+
+            <div class="form-check form-switch mb-4">
+              {{ form.sso_required }}
+              <label class="form-check-label" for="{{ form.sso_required.id_for_label }}">
+                {{ form.sso_required.label }}
+              </label>
+              <div class="form-text">{{ form.sso_required.help_text }}</div>
+              {{ form.sso_required.errors }}
+            </div>
+
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.sso_oidc_issuer_url.id_for_label }}">{{ form.sso_oidc_issuer_url.label }}</label>
+                {{ form.sso_oidc_issuer_url }}
+                <div class="form-text">{{ form.sso_oidc_issuer_url.help_text }}</div>
+                {{ form.sso_oidc_issuer_url.errors }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.sso_oidc_client_id.id_for_label }}">{{ form.sso_oidc_client_id.label }}</label>
+                {{ form.sso_oidc_client_id }}
+                <div class="form-text">{{ form.sso_oidc_client_id.help_text }}</div>
+                {{ form.sso_oidc_client_id.errors }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.client_secret.id_for_label }}">{{ form.client_secret.label }}</label>
+                {{ form.client_secret }}
+                <div class="form-text">
+                  {{ form.client_secret.help_text }}
+                  {% if organization.sso_oidc_client_secret_last_four %}
+                    Current secret ending: <code>{{ organization.sso_oidc_client_secret_last_four }}</code>.
+                  {% endif %}
+                </div>
+                {{ form.client_secret.errors }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ form.sso_oidc_scopes.id_for_label }}">{{ form.sso_oidc_scopes.label }}</label>
+                {{ form.sso_oidc_scopes }}
+                <div class="form-text">{{ form.sso_oidc_scopes.help_text }}</div>
+                {{ form.sso_oidc_scopes.errors }}
+              </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+              <button class="btn btn-primary" type="submit">Save SSO settings</button>
+              <a class="btn btn-outline-secondary" href="{% url 'core:settings_home' %}">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}
