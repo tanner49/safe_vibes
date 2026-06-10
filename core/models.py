@@ -36,7 +36,7 @@ class Organization(models.Model):
         super().save(*args, **kwargs)
 
     def get_absolute_url(self):
-        return reverse("core:dashboard")
+        return reverse("core:reports_placeholder")
 
 
 class Membership(models.Model):

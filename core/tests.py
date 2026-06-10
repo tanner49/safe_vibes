@@ -313,11 +313,11 @@ class LoginPolicyTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], reverse("core:dashboard"))
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
 
 
 class DashboardTests(TestCase):
-    def test_dashboard_shows_current_organization(self):
+    def test_dashboard_redirects_to_reports(self):
         user = create_user("creator@example.com")
         organization = Organization.objects.create(name="Demo Sales Org")
         Membership.objects.create(
@@ -329,11 +329,10 @@ class DashboardTests(TestCase):
 
         response = self.client.get(reverse("core:dashboard"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Demo Sales Org")
-        self.assertContains(response, "Creator")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
 
-    def test_creator_dashboard_does_not_render_settings_links(self):
+    def test_authenticated_home_redirects_to_reports(self):
         user = create_user("creator@example.com")
         organization = Organization.objects.create(name="Demo Sales Org")
         Membership.objects.create(
@@ -343,13 +342,12 @@ class DashboardTests(TestCase):
         )
         self.client.force_login(user)
 
-        response = self.client.get(reverse("core:dashboard"))
+        response = self.client.get(reverse("core:home"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, reverse("core:settings_home"))
-        self.assertNotContains(response, "Company settings")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("core:reports_placeholder"))
 
-    def test_company_admin_dashboard_renders_settings_links(self):
+    def test_authenticated_nav_does_not_render_dashboard_link(self):
         user = create_user("admin@example.com")
         organization = Organization.objects.create(name="Demo Sales Org")
         Membership.objects.create(
@@ -359,11 +357,12 @@ class DashboardTests(TestCase):
         )
         self.client.force_login(user)
 
-        response = self.client.get(reverse("core:dashboard"))
+        response = self.client.get(reverse("core:reports_placeholder"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, reverse("core:settings_home"))
-        self.assertContains(response, "Company settings")
+        self.assertNotContains(response, "Dashboard")
+        self.assertContains(response, reverse("core:builder_home"))
+        self.assertContains(response, reverse("core:reports_placeholder"))
 
 
 class CompanySettingsTests(TestCase):

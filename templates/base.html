@@ -357,7 +357,6 @@
         <div class="app-actions">
           {% if user.is_authenticated %}
             <div class="app-nav">
-              <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:dashboard' %}">Dashboard</a>
               <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:builder_home' %}">Builder</a>
               <a class="btn btn-sm btn-outline-secondary" href="{% url 'core:reports_placeholder' %}">Reports</a>
               {% if is_company_admin %}

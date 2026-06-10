@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
@@ -75,29 +74,13 @@ def require_company_admin(user):
 
 def home(request):
     if request.user.is_authenticated:
-        return redirect("core:dashboard")
+        return redirect("core:reports_placeholder")
     return render(request, "core/home.html")
 
 
 @login_required
 def dashboard(request):
-    membership = get_current_membership(request.user)
-    organization = membership.organization if membership else None
-    return render(
-        request,
-        "core/dashboard.html",
-        {
-            "membership": membership,
-            "organization": organization,
-            "limits": {
-                "query_timeout_seconds": settings.REPORT_QUERY_TIMEOUT_SECONDS,
-                "cache_ttl_seconds": settings.REPORT_CACHE_TTL_SECONDS,
-                "max_rows": settings.REPORT_MAX_ROWS,
-                "max_raw_bytes": settings.REPORT_MAX_RAW_BYTES,
-                "max_compressed_bytes": settings.REPORT_MAX_COMPRESSED_BYTES,
-            },
-        },
-    )
+    return redirect("core:reports_placeholder")
 
 
 @login_required
